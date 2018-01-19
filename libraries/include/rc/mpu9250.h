@@ -81,21 +81,22 @@
 #define QUAT_Z		3
 
 typedef enum rc_accel_fsr_t{
-  A_FSR_2G,
-  A_FSR_4G,
-  A_FSR_8G,
-  A_FSR_16G
+	ACCEL_FSR_2G,
+	ACCEL_FSR_4G,
+	ACCEL_FSR_8G,
+	ACCEL_FSR_16G
 } rc_accel_fsr_t;
 
 typedef enum rc_gyro_fsr_t{
-  G_FSR_250DPS,
-  G_FSR_500DPS,
-  G_FSR_1000DPS,
-  G_FSR_2000DPS
+	GYRO_FSR_250DPS,
+	GYRO_FSR_500DPS,
+	GYRO_FSR_1000DPS,
+	GYRO_FSR_2000DPS
 } rc_gyro_fsr_t;
 
 typedef enum rc_accel_dlpf_t{
 	ACCEL_DLPF_OFF,
+	ACCEL_DLPF_460,
 	ACCEL_DLPF_184,
 	ACCEL_DLPF_92,
 	ACCEL_DLPF_41,
@@ -106,6 +107,7 @@ typedef enum rc_accel_dlpf_t{
 
 typedef enum rc_gyro_dlpf_t{
 	GYRO_DLPF_OFF,
+	GYRO_DLPF_250,
 	GYRO_DLPF_184,
 	GYRO_DLPF_92,
 	GYRO_DLPF_41,
@@ -115,36 +117,39 @@ typedef enum rc_gyro_dlpf_t{
 } rc_gyro_dlpf_t;
 
 typedef enum rc_imu_orientation_t{
-	ORIENTATION_Z_UP		= 136,
-	ORIENTATION_Z_DOWN		= 396,
-	ORIENTATION_X_UP		= 14,
-	ORIENTATION_X_DOWN		= 266,
-	ORIENTATION_Y_UP		= 112,
-	ORIENTATION_Y_DOWN		= 336,
+	ORIENTATION_Z_UP	= 136,
+	ORIENTATION_Z_DOWN	= 396,
+	ORIENTATION_X_UP	= 14,
+	ORIENTATION_X_DOWN	= 266,
+	ORIENTATION_Y_UP	= 112,
+	ORIENTATION_Y_DOWN	= 336,
 	ORIENTATION_X_FORWARD	= 133,
-	ORIENTATION_X_BACK		= 161
+	ORIENTATION_X_BACK	= 161
 } rc_imu_orientation_t;
 
 typedef struct rc_imu_config_t{
 	// full scale ranges for sensors
-	rc_accel_fsr_t accel_fsr; // AFS_2G, AFS_4G, AFS_8G, AFS_16G
-	rc_gyro_fsr_t gyro_fsr;  // GFS_250,GFS_500,GFS_1000,GFS_2000
+	rc_accel_fsr_t accel_fsr;	// default: ACCEL_FSR_4G
+	rc_gyro_fsr_t gyro_fsr;		// default: GYRO_FSR_1000
 
 	// internal low pass filter constants
-	rc_gyro_dlpf_t gyro_dlpf;
-	rc_accel_dlpf_t accel_dlpf;
+	rc_accel_dlpf_t accel_dlpf;	// default ACCEL_DLPF_92
+	rc_gyro_dlpf_t gyro_dlpf;	// default GYRO_DLPF_92
 
 	// magnetometer use is optional
-	int enable_magnetometer; // 0 or 1
+	int enable_magnetometer;	// 0 or 1
 
 	// DMP settings, only used with DMP interrupt
-	int dmp_sample_rate;
-	rc_imu_orientation_t orientation; //orientation matrix
-	// higher mix_factor means less weight the compass has on fused_TaitBryan
-	float compass_time_constant; 	// time constant for filtering fused yaw
-	int dmp_interrupt_priority; // scheduler priority for handler
-	int show_warnings;	// set to 1 to enable showing of rc_i2c_bus warnings
+	int dmp_sample_rate;		// hertz, 200,100,50,40,25,20,10,8,5,4
+	rc_imu_orientation_t orientation;// orientation matrix
+	float compass_time_constant;	// time constant for filtering fused yaw
+	int dmp_interrupt_priority;	// scheduler priority for handler
+	int show_warnings;		// set to 1 to enable showing of rc_i2c_bus warnings
 
+	// connectivity options
+	int gpio_interrupt_pin;		// gpio pin, default 117 on Robotics Cape and BB Blue
+	int i2c_bus;			// which bus to use, default 2 on Robotics Cape and BB Blue
+	uint8_t i2c_addr;		// default is 0x68, pull pin ad0 high to make it 0x69
 } rc_imu_config_t;
 
 typedef struct rc_imu_data_t{

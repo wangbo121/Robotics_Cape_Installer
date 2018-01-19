@@ -5,8 +5,13 @@
 * sensor registers. To use the DMP or interrupt-driven timing see test_dmp.c
 *******************************************************************************/
 
-#include "../../libraries/rc_usefulincludes.h"
-#include "../../libraries/roboticscape.h"
+#include "stdio.h"
+#include "getopt.h"
+#include "../../libraries/include/rc/mpu9250.h"
+#include "../../libraries/include/rc/flow.h"
+#include "../../libraries/include/rc/time.h"
+
+#define DEG_TO_RAD	0.0174532925199
 
 // possible modes, user selected with command line arguments
 typedef enum m_mode_t{
@@ -53,11 +58,8 @@ int main(int argc, char *argv[]){
 		}
 	}
 
-	// initialize hardware first
-	if(rc_initialize()){
-		fprintf(stderr,"ERROR: failed to run rc_initialize(), are you root?\n");
-		return -1;
-	}
+	rc_enable_signal_handler();
+	rc_set_state(UNINITIALIZED);
 
 	// use defaults for now, except also enable magnetometer.
 	rc_imu_config_t conf = rc_default_imu_config();
@@ -92,24 +94,25 @@ int main(int argc, char *argv[]){
 	printf("\n");
 
 	//now just wait, print_data will run
+	rc_set_state(RUNNING);
 	while (rc_get_state() != EXITING) {
 		printf("\r");
-		
+
 		// print accel
 		if(rc_read_accel_data(&data)<0){
 			printf("read accel data failed\n");
 		}
 		if(mode==RAW){
-			printf("%6d %6d %6d |",			data.raw_accel[0],\
-											data.raw_accel[1],\
-											data.raw_accel[2]);
+			printf("%6d %6d %6d |",		data.raw_accel[0],\
+							data.raw_accel[1],\
+							data.raw_accel[2]);
 		}
 		else{
 			printf("%6.2f %6.2f %6.2f |",	data.accel[0],\
-											data.accel[1],\
-											data.accel[2]);
+							data.accel[1],\
+							data.accel[2]);
 		}
-		
+
 		// print gyro data
 		if(rc_read_gyro_data(&data)<0){
 			printf("read gyro data failed\n");
@@ -117,18 +120,18 @@ int main(int argc, char *argv[]){
 		switch(mode){
 		case RAD:
 			printf("%6.1f %6.1f %6.1f |",	data.gyro[0]*DEG_TO_RAD,\
-											data.gyro[1]*DEG_TO_RAD,\
-											data.gyro[2]*DEG_TO_RAD);
+							data.gyro[1]*DEG_TO_RAD,\
+							data.gyro[2]*DEG_TO_RAD);
 			break;
 		case DEG:
 			printf("%6.1f %6.1f %6.1f |",	data.gyro[0],\
-											data.gyro[1],\
-											data.gyro[2]);
+							data.gyro[1],\
+							data.gyro[2]);
 			break;
 		case RAW:
-			printf("%6d %6d %6d |",			data.raw_gyro[0],\
-											data.raw_gyro[1],\
-											data.raw_gyro[2]);
+			printf("%6d %6d %6d |",		data.raw_gyro[0],\
+							data.raw_gyro[1],\
+							data.raw_gyro[2]);
 			break;
 		default:
 			printf("ERROR: invalid mode\n");
@@ -140,21 +143,20 @@ int main(int argc, char *argv[]){
 			printf("read mag data failed\n");
 		}
 		else printf("%6.1f %6.1f %6.1f |",	data.mag[0],\
-											data.mag[1],\
-											data.mag[2]);
+							data.mag[1],\
+							data.mag[2]);
 
 		// read temperature
 		if(rc_read_imu_temp(&data)<0){
 			printf("read temp data failed\n");
 		}
 		else printf(" %4.1f ", data.temp);
-														
+
 		fflush(stdout);
 		rc_usleep(100000);
 	}
 
 	rc_power_off_imu();
-	rc_cleanup();
 	return 0;
 }
 

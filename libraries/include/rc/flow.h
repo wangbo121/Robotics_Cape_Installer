@@ -118,6 +118,8 @@
 #ifndef RC_STATE_H
 #define RC_STATE_H
 
+#include "preprocessor_macros.h"
+
 typedef enum rc_state_t {
 	UNINITIALIZED,
 	RUNNING,
@@ -139,9 +141,9 @@ int rc_remove_pid_file();
 int rc_enable_signal_handler();
 int rc_disable_signal_handler();
 
-// deprecated
-int rc_initialize();	// call at the beginning of main()
-int rc_cleanup();	// call at the end of main()
+// deprecated functions
+__deprecated int rc_initialize();	// call at the beginning of main()
+__deprecated int rc_cleanup();	// call at the end of main()
 
 
 

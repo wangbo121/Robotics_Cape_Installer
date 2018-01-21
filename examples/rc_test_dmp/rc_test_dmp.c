@@ -6,8 +6,16 @@
 * Instructions are printed to the screen when called.
 *******************************************************************************/
 
-#include "../../libraries/rc_usefulincludes.h"
-#include "../../libraries/roboticscape.h"
+#include <stdio.h>
+#include <getopt.h>
+#include <stdlib.h> // for atoi() and exit()
+#include <rc/mpu9250.h>
+#include <rc/flow.h>
+#include <rc/time.h>
+
+
+#define DEG_TO_RAD	0.0174532925199
+#define RAD_TO_DEG	57.295779513
 
 // Global Variables
 int show_accel = 0;
@@ -19,7 +27,7 @@ int show_quat  = 0;
 int show_tb = 0;
 int orientation_menu = 0;
 //struct to hold new data
-rc_imu_data_t data; 
+rc_imu_data_t data;
 
 // local functions
 rc_imu_orientation_t orientation_prompt();
@@ -37,7 +45,8 @@ void print_usage(){
 	printf("\n Options\n");
 	printf("-s {rate}	Set sample rate in HZ (default 100)\n");
 	printf("		Sample rate must be a divisor of 200\n");
-	printf("-m		Enable Magnetometer\n");
+	printf("-b		Enable Magnetometer\n");
+	printf("-m		Enable Reading Magnetometer before ISR (default after)\n");
 	printf("-c		Show raw compass angle\n");
 	printf("-a		Print Accelerometer Data\n");
 	printf("-g		Print Gyro Data\n");
@@ -47,60 +56,59 @@ void print_usage(){
 	printf("-w		Print I2C bus warnings\n");
 	printf("-o		Show a menu to select IMU orientation\n");
 	printf("-h		Print this help message\n\n");
-	
+
 	return;
 }
 
 /*******************************************************************************
 * void print_data()
 *
-* This is the IMU interrupt function.  
+* This is the IMU interrupt function.
 *******************************************************************************/
 void print_data(){
 	printf("\r");
 	printf(" ");
-	
+
 	if(show_compass){
 		printf("   %6.1f   |", data.compass_heading_raw*RAD_TO_DEG);
 		printf("   %6.1f   |", data.compass_heading*RAD_TO_DEG);
 	}
 	if(show_quat && enable_mag){
 		// print fused quaternion
-		printf(" %4.1f %4.1f %4.1f %4.1f |", 	data.fused_quat[QUAT_W], \
-												data.fused_quat[QUAT_X], \
-												data.fused_quat[QUAT_Y], \
+		printf(" %4.1f %4.1f %4.1f %4.1f |",	data.fused_quat[QUAT_W], \
+							data.fused_quat[QUAT_X], \
+							data.fused_quat[QUAT_Y], \
 												data.fused_quat[QUAT_Z]);
 	}
 	else if(show_quat){
 		// print quaternion
 		printf(" %4.1f %4.1f %4.1f %4.1f |",	data.dmp_quat[QUAT_W], \
-												data.dmp_quat[QUAT_X], \
-												data.dmp_quat[QUAT_Y], \
-												data.dmp_quat[QUAT_Z]);
+							data.dmp_quat[QUAT_X], \
+							data.dmp_quat[QUAT_Y], \
+							data.dmp_quat[QUAT_Z]);
 	}
 	if(show_tb && enable_mag){
 		// print fused TaitBryan Angles
 		printf("%6.1f %6.1f %6.1f |",	data.fused_TaitBryan[TB_PITCH_X]*RAD_TO_DEG,\
-										data.fused_TaitBryan[TB_ROLL_Y]*RAD_TO_DEG,\
-										data.fused_TaitBryan[TB_YAW_Z]*RAD_TO_DEG);
+						data.fused_TaitBryan[TB_ROLL_Y]*RAD_TO_DEG,\
+						data.fused_TaitBryan[TB_YAW_Z]*RAD_TO_DEG);
 	}
 	else if(show_tb){
 		// print TaitBryan angles
 		printf("%6.1f %6.1f %6.1f |",	data.dmp_TaitBryan[TB_PITCH_X]*RAD_TO_DEG,\
-										data.dmp_TaitBryan[TB_ROLL_Y]*RAD_TO_DEG,\
-										data.dmp_TaitBryan[TB_YAW_Z]*RAD_TO_DEG);
+						data.dmp_TaitBryan[TB_ROLL_Y]*RAD_TO_DEG,\
+						data.dmp_TaitBryan[TB_YAW_Z]*RAD_TO_DEG);
 	}
 	if(show_accel){
 		printf(" %5.2f %5.2f %5.2f |",	data.accel[0],\
-										data.accel[1],\
-										data.accel[2]);
+						data.accel[1],\
+						data.accel[2]);
 	}
 	if(show_gyro){
 		printf(" %5.1f %5.1f %5.1f |",	data.gyro[0],\
-										data.gyro[1],\
-										data.gyro[2]);
+						data.gyro[1],\
+						data.gyro[2]);
 	}
-													
 	fflush(stdout);
 	return;
 }
@@ -127,7 +135,7 @@ void print_header(){
 	if(show_accel) printf("   Accel XYZ (g)   |");
 	if(show_gyro) printf("  Gyro XYZ (deg/s) |");
 	if(show_temp) printf(" Temp(C)");
-	
+
 	printf("\n");
 }
 
@@ -135,13 +143,13 @@ void print_header(){
 * rc_imu_orientation_t orientation_prompt()
 *
 * If the user selects the -o option for orientation selection, this menu will
-* displayed to prompt the user for which orientation to use. It will return 
-* a valid rc_imu_orientation_t when a number 1-6 is given or quit when 'q' is 
+* displayed to prompt the user for which orientation to use. It will return
+* a valid rc_imu_orientation_t when a number 1-6 is given or quit when 'q' is
 * pressed. On other inputs the user will be allowed to enter again.
 *******************************************************************************/
 rc_imu_orientation_t orientation_prompt(){
-	char c;
-	
+	int c;
+
 	printf("\n");
 	printf("Please select a number 1-6 corresponding to the\n");
 	printf("orientation you wish to use. Press 'q' to exit.\n\n");
@@ -154,44 +162,43 @@ rc_imu_orientation_t orientation_prompt(){
 	printf(" 7: ORIENTATION_X_FORWARD\n");
 	printf(" 8: ORIENTATION_X_BACK\n");
 
-    while ((c = getchar()) != EOF){
-        switch(c){
-        case '1':
-            return ORIENTATION_Z_UP;
-            break;
+	while ((c = getchar()) != EOF){
+		switch(c){
+		case '1':
+			return ORIENTATION_Z_UP;
+			break;
 		case '2':
-            return ORIENTATION_Z_DOWN;
-            break;
+			return ORIENTATION_Z_DOWN;
+			break;
 		case '3':
-            return ORIENTATION_X_UP;
-            break;
+			return ORIENTATION_X_UP;
+			break;
 		case '4':
-            return ORIENTATION_X_DOWN;
-            break;
+			return ORIENTATION_X_DOWN;
+			break;
 		case '5':
-            return ORIENTATION_Y_UP;
-            break;
+			return ORIENTATION_Y_UP;
+			break;
 		case '6':
-            return ORIENTATION_Y_DOWN;
-            break;
-        case '7':
-            return ORIENTATION_X_FORWARD;
-            break;
+			return ORIENTATION_Y_DOWN;
+			break;
+		case '7':
+			return ORIENTATION_X_FORWARD;
+			break;
 		case '8':
-            return ORIENTATION_X_BACK;
-            break;
-        case 'q':
-            printf("Quitting\n");
-            exit(0);
-            break;
+			return ORIENTATION_X_BACK;
+			break;
+		case 'q':
+			printf("Quitting\n");
+			exit(0);
 		case '\n':
 			break;
-        default:
-            printf("invalid input\n");
-            break;
-        }
-    }
-    return 0;
+		default:
+			printf("invalid input\n");
+			break;
+		}
+	}
+	return 0;
 }
 
 /*******************************************************************************
@@ -205,13 +212,13 @@ rc_imu_orientation_t orientation_prompt(){
 int main(int argc, char *argv[]){
 	int c, sample_rate, priority;
 	int show_something = 0; // set to 1 when any show data option is given.
-	
+
 	// start with default config and modify based on options
 	rc_imu_config_t conf = rc_default_imu_config();
-	
+
 	// parse arguments
 	opterr = 0;
-	while ((c=getopt(argc, argv, "s:magrqtcp:hwo"))!=-1 && argc>1){
+	while ((c=getopt(argc, argv, "s:mbagrqtcp:hwo"))!=-1 && argc>1){
 		switch (c){
 		case 's': // sample rate option
 			sample_rate = atoi(optarg);
@@ -223,17 +230,15 @@ int main(int argc, char *argv[]){
 			break;
 		case 'p': // priority option
 			priority = atoi(optarg);
-			const int max_pri = sched_get_priority_max(SCHED_FIFO);
-			if(priority>max_pri || priority<0){
-				printf("priority must be between 0 & %d\n",max_pri);
-				return -1;
-			}
 			conf.dmp_interrupt_priority = priority;
 			break;
 		case 'm': // magnetometer option
 			show_something = 1;
 			enable_mag = 1;
 			conf.enable_magnetometer = 1;
+			break;
+		case 'b': // magnetometer option
+			conf.read_mag_after_interrupt = 0;
 			break;
 		case 'c': // compass option
 			show_something = 1;
@@ -244,10 +249,12 @@ int main(int argc, char *argv[]){
 		case 'a': // show accelerometer option
 			show_something = 1;
 			show_accel = 1;
+			conf.dmp_fetch_accel_gyro=1;
 			break;
 		case 'g': // show gyro option
 			show_something = 1;
 			show_gyro = 1;
+			conf.dmp_fetch_accel_gyro=1;
 			break;
 		case 'q': // show quaternion option
 			show_something = 1;
@@ -289,11 +296,10 @@ int main(int argc, char *argv[]){
 	if(orientation_menu){
 		conf.orientation=orientation_prompt();
 	}
-	// initialize hardware first
-	if(rc_initialize()){
-		fprintf(stderr,"ERROR: failed to run rc_initialize(), are you root?\n");
-		return -1;
-	}
+	// enable signal handler for ctrl-c
+	rc_enable_signal_handler();
+	rc_set_state(UNINITIALIZED);
+
 	// now set up the imu for dmp interrupt operation
 	if(rc_initialize_imu_dmp(&data, conf)){
 		printf("rc_initialize_imu_failed\n");
@@ -304,12 +310,12 @@ int main(int argc, char *argv[]){
 	print_header();
 	rc_set_imu_interrupt_func(&print_data);
 	//now just wait, print_data() will be called by the interrupt
+	rc_set_state(RUNNING);
 	while (rc_get_state()!=EXITING) {
-		usleep(10000);
+		rc_usleep(10000);
 	}
 	// shut things down
 	rc_power_off_imu();
-	rc_cleanup();
 	return 0;
 }
 

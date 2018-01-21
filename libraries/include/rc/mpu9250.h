@@ -70,6 +70,7 @@
 #define RC_MPU9250_H
 
 #include <stdint.h>
+#include "preprocessor_macros.h"
 
 // defines for index location within TaitBryan and quaternion vectors
 #define TB_PITCH_X	0
@@ -128,28 +129,39 @@ typedef enum rc_imu_orientation_t{
 } rc_imu_orientation_t;
 
 typedef struct rc_imu_config_t{
+	int gpio_interrupt_pin;		// gpio pin, default 117 on Robotics Cape and BB Blue
+	int i2c_bus;			// which bus to use, default 2 on Robotics Cape and BB Blue
+	uint8_t i2c_addr;		// default is 0x68, pull pin ad0 high to make it 0x69
+	int show_warnings;		// set to 1 to print i2c_bus warnings for debug
+
 	// full scale ranges for sensors
-	rc_accel_fsr_t accel_fsr;	// default: ACCEL_FSR_4G
-	rc_gyro_fsr_t gyro_fsr;		// default: GYRO_FSR_1000
+	rc_accel_fsr_t accel_fsr;	// default: ACCEL_FSR_2G
+	rc_gyro_fsr_t gyro_fsr;		// default: GYRO_FSR_2000DPS
 
 	// internal low pass filter constants
-	rc_accel_dlpf_t accel_dlpf;	// default ACCEL_DLPF_92
-	rc_gyro_dlpf_t gyro_dlpf;	// default GYRO_DLPF_92
+	rc_accel_dlpf_t accel_dlpf;	// default ACCEL_DLPF_184
+	rc_gyro_dlpf_t gyro_dlpf;	// default GYRO_DLPF_184
 
 	// magnetometer use is optional
 	int enable_magnetometer;	// 0 or 1
 
-	// DMP settings, only used with DMP interrupt
+	// everything below here are DMP settings, only used with DMP interrupt
 	int dmp_sample_rate;		// hertz, 200,100,50,40,25,20,10,8,5,4
+	int dmp_fetch_accel_gyro;	// also get raw accel/gyro when reading dmp quaternion
 	rc_imu_orientation_t orientation;// orientation matrix
 	float compass_time_constant;	// time constant for filtering fused yaw
 	int dmp_interrupt_priority;	// scheduler priority for handler
-	int show_warnings;		// set to 1 to enable showing of rc_i2c_bus warnings
-
+	// reading the magnetometer during DMP operation can add extra latency
+	// To help this, by default the magnetometer will be read after the
+	// user's interrupt service routine to reduce latency as much as possible.
+	// set his flag to 0 to read the magnetometer before the ISR is called
+	int read_mag_after_interrupt;	// default 1 (true)
+	// the magnetometer only updates at 100hz, and sampling that fast generally
+	// isn't necessary. Reduce the rate with this divider
+	// sample rate = dmp_sample_rate/mag_sample_rate_div
+	int mag_sample_rate_div; // default 4
 	// connectivity options
-	int gpio_interrupt_pin;		// gpio pin, default 117 on Robotics Cape and BB Blue
-	int i2c_bus;			// which bus to use, default 2 on Robotics Cape and BB Blue
-	uint8_t i2c_addr;		// default is 0x68, pull pin ad0 high to make it 0x69
+
 } rc_imu_config_t;
 
 typedef struct rc_imu_data_t{

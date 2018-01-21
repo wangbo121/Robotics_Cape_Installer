@@ -5,11 +5,11 @@
 * sensor registers. To use the DMP or interrupt-driven timing see test_dmp.c
 *******************************************************************************/
 
-#include "stdio.h"
-#include "getopt.h"
-#include "../../libraries/include/rc/mpu9250.h"
-#include "../../libraries/include/rc/flow.h"
-#include "../../libraries/include/rc/time.h"
+#include <stdio.h>
+#include <getopt.h>
+#include <rc/mpu9250.h>
+#include <rc/flow.h>
+#include <rc/time.h>
 
 #define DEG_TO_RAD	0.0174532925199
 #define MS2_TO_G	0.10197162129
@@ -29,6 +29,7 @@ typedef enum a_mode_t{
 
 int enable_magnetometer = 0;
 int enable_thermometer = 0;
+int enable_warnings=0;
 
 // printed if some invalid argument was given
 void print_usage(){
@@ -38,6 +39,7 @@ void print_usage(){
 	printf("-g	print acceleration in G instead of m/s^2\n");
 	printf("-m	print magnetometer data as well as accel/gyro\n");
 	printf("-t	print thermometer data as well as accel/gyro\n");
+	printf("-w	print i2c warnings\n");
 	printf("-h	print this help message\n");
 	printf("\n");
 }
@@ -50,7 +52,7 @@ int main(int argc, char *argv[]){
 
 	// parse arguments
 	opterr = 0;
-	while ((c = getopt(argc, argv, "argmth")) != -1){
+	while ((c = getopt(argc, argv, "argmtwh")) != -1){
 		switch (c){
 		case 'a':
 			g_mode = G_MODE_RAW;
@@ -69,6 +71,9 @@ int main(int argc, char *argv[]){
 		case 't':
 			enable_thermometer = 1;
 			break;
+		case 'w':
+			enable_warnings = 1;
+			break;
 		case 'h':
 			print_usage();
 			return 0;
@@ -85,6 +90,7 @@ int main(int argc, char *argv[]){
 	// use defaults for now, except also enable magnetometer.
 	rc_imu_config_t conf = rc_default_imu_config();
 	conf.enable_magnetometer = enable_magnetometer;
+	conf.show_warnings = enable_warnings;
 
 	if(rc_initialize_imu(&data, conf)){
 		fprintf(stderr,"rc_initialize_imu_failed\n");

@@ -360,5 +360,25 @@ identical but the latter has a different register map
 #define DMP_FEATURE_SEND_ANY_GYRO	(DMP_FEATURE_SEND_RAW_GYRO | \
 					DMP_FEATURE_SEND_CAL_GYRO)
 
+#define TAP_X               (0x01)
+#define TAP_Y               (0x02)
+#define TAP_Z               (0x04)
+#define TAP_XYZ             (0x07)
+
+#define TAP_X_UP            (0x01)
+#define TAP_X_DOWN          (0x02)
+#define TAP_Y_UP            (0x03)
+#define TAP_Y_DOWN          (0x04)
+#define TAP_Z_UP            (0x05)
+#define TAP_Z_DOWN          (0x06)
+
+#define ANDROID_ORIENT_PORTRAIT             (0x00)
+#define ANDROID_ORIENT_LANDSCAPE            (0x01)
+#define ANDROID_ORIENT_REVERSE_PORTRAIT     (0x02)
+#define ANDROID_ORIENT_REVERSE_LANDSCAPE    (0x03)
+
+#define INV_WXYZ_QUAT       (0x100)
+
+
 
 #endif

@@ -34,6 +34,7 @@
 #include "mpu9250_defs.h"
 #include "dmp_firmware.h"
 #include "dmpKey.h"
+#include "dmpmap.h"
 
 // macros
 #define ARRAY_SIZE(array) sizeof(array)/sizeof(array[0])
@@ -622,7 +623,6 @@ int __init_magnetometer()
 {
 	uint8_t raw[3];	// calibration data stored here
 
-	rc_i2c_set_device_address(config.i2c_bus, config.i2c_addr);
 	// Enable i2c bypass to allow talking to magnetometer
 	if(__mpu_set_bypass(1)){
 		fprintf(stderr,"failed to set mpu9250 into bypass i2c mode\n");
@@ -740,6 +740,7 @@ int rc_power_off_imu()
 *******************************************************************************/
 int rc_initialize_imu_dmp(rc_imu_data_t *data, rc_imu_config_t conf)
 {
+	uint8_t tmp;
 	// range check
 	if(conf.dmp_sample_rate>DMP_MAX_RATE || conf.dmp_sample_rate<DMP_MIN_RATE){
 		fprintf(stderr,"ERROR:dmp_sample_rate must be between %d & %d\n", \
@@ -820,14 +821,38 @@ int rc_initialize_imu_dmp(rc_imu_data_t *data, rc_imu_config_t conf)
 		rc_i2c_release_bus(config.i2c_bus);
 		return -1;
 	}
+	// MPU6500 shares 4kB of memory between the DMP and the FIFO. Since the
+	//first 3kB are needed by the DMP, we'll use the last 1kB for the FIFO.
+	// this is also set in set_accel_dlpf but we set here early on
+	tmp = BIT_FIFO_SIZE_1024 | 0x8;
+	if(rc_i2c_write_byte(config.i2c_bus, ACCEL_CONFIG_2, tmp)){
+		rc_i2c_release_bus(config.i2c_bus);
+		return -1;
+	}
 	// load in gyro calibration offsets from disk
 	if(__load_gyro_offets()<0){
 		fprintf(stderr,"ERROR: failed to load gyro calibration offsets\n");
 		rc_i2c_release_bus(config.i2c_bus);
 		return -1;
 	}
-	// log locally that the dmp will be running
-	dmp_en = 1;
+
+	// set full scale ranges. It seems the DMP only scales the gyro properly
+	// at 2000DPS. I'll assume the same is true for accel and use 2G like their
+	// example
+	__set_gyro_fsr(GYRO_FSR_2000DPS, data_ptr);
+	__set_accel_fsr(ACCEL_FSR_2G, data_ptr);
+
+	// set dlpf, these values already checked for bounds above
+	if(__set_gyro_dlpf(conf.gyro_dlpf)){
+		fprintf(stderr,"failed to set gyro dlpf\n");
+		rc_i2c_release_bus(config.i2c_bus);
+		return -1;
+	}
+	if(__set_accel_dlpf(conf.accel_dlpf)){
+		fprintf(stderr,"failed to set accel_dlpf\n");
+		rc_i2c_release_bus(config.i2c_bus);
+		return -1;
+	}
 
 	// This actually sets the rate of the interrupt, not the DMP itself
 	// however, setting it to anything but 200 destroys the gyro integration factor
@@ -846,55 +871,68 @@ int rc_initialize_imu_dmp(rc_imu_data_t *data, rc_imu_config_t conf)
 		}
 	}
 	else __power_off_magnetometer();
-	// set full scale ranges. It seems the DMP only scales the gyro properly
-	// at 2000DPS. I'll assume the same is true for accel and use 2G like their
-	// example
-	__set_gyro_fsr(GYRO_FSR_2000DPS, data_ptr);
-	__set_accel_fsr(ACCEL_FSR_2G, data_ptr);
-	// set up the DMP
+
+
+	// set up the DMP, order is important, from motiondrive_tutorial.pdf:
+	// 1) load firmware
+	// 2) set orientation matrix
+	// 3) enable callbacks (we don't do this here)
+	// 4) enable features
+	// 5) set fifo rate
+	// 6) set any feature-specific control functions
+	// 7) turn dmp on
+	dmp_en = 1; // log locally that the dmp will be running
 	if(__dmp_load_motion_driver_firmware()<0){
 		fprintf(stderr,"failed to load DMP motion driver\n");
 		rc_i2c_release_bus(config.i2c_bus);
 		return -1;
 	}
-	// this changes the rate that new dmp data is put in the fifo
-	// fixing at 200 causes gyro scaling issues at lower mpu sample rates
-	if(__dmp_set_fifo_rate(config.dmp_sample_rate)<0){
-		fprintf(stderr,"ERROR: failed to set DMP fifo rate\n");
-		rc_i2c_release_bus(config.i2c_bus);
-		return -1;
-	}
-	// Set fifo/sensor sample rate. Will have to set the DMP sample
-	// rate to match this shortly.
+
+	// set the orientation of dmp quaternion
 	if(__dmp_set_orientation((unsigned short)conf.orientation)<0){
 		fprintf(stderr,"ERROR: failed to set dmp orientation\n");
 		rc_i2c_release_bus(config.i2c_bus);
 		return -1;
 	}
+
 	/// enbale quaternion feature and accel/gyro if requested
-	unsigned short feature_mask;
+	// due to a known bug in the DMP, the tap feature must be enabled to
+	// get interrupts slower than 200hz
+	//unsigned short feature_mask = DMP_FEATURE_6X_LP_QUAT|DMP_FEATURE_TAP;
+	unsigned short feature_mask = DMP_FEATURE_6X_LP_QUAT;
 	if(config.dmp_fetch_accel_gyro){
-		feature_mask=DMP_FEATURE_6X_LP_QUAT|DMP_FEATURE_SEND_RAW_ACCEL|DMP_FEATURE_SEND_RAW_GYRO;
-	}
-	else{
-		feature_mask=DMP_FEATURE_6X_LP_QUAT;
+		feature_mask|=DMP_FEATURE_SEND_RAW_ACCEL|DMP_FEATURE_SEND_RAW_GYRO;
 	}
 	if(__dmp_enable_feature(feature_mask)<0){
 		fprintf(stderr,"ERROR: failed to enable DMP features\n");
 		rc_i2c_release_bus(config.i2c_bus);
 		return -1;
 	}
-	//if(__dmp_set_interrupt_mode(DMP_INT_CONTINUOUS)<0){
-	if(__dmp_set_interrupt_mode(DMP_INT_CONTINUOUS)<0){
-		fprintf(stderr,"ERROR: failed to set DMP interrupt mode to continuous\n");
+
+	// this changes the rate new dmp data is put in the fifo
+	// fixing at 200 causes gyro scaling issues at lower mpu sample rates
+	if(__dmp_set_fifo_rate(config.dmp_sample_rate)<0){
+		fprintf(stderr,"ERROR: failed to set DMP fifo rate\n");
 		rc_i2c_release_bus(config.i2c_bus);
 		return -1;
 	}
+
+	// turn the dmp on
 	if(__mpu_set_dmp_state(1)<0) {
 		fprintf(stderr,"ERROR: __mpu_set_dmp_state(1) failed\n");
 		rc_i2c_release_bus(config.i2c_bus);
 		return -1;
 	}
+
+	// // set interrupt mode to continuous as opposed to GESTURE
+	// //if(__dmp_set_interrupt_mode(DMP_INT_CONTINUOUS)<0){
+	// if(__dmp_set_interrupt_mode(DMP_INT_GESTURE)<0){
+	// 	fprintf(stderr,"ERROR: failed to set DMP interrupt mode to continuous\n");
+	// 	rc_i2c_release_bus(config.i2c_bus);
+	// 	return -1;
+	// }
+
+
 	rc_i2c_release_bus(config.i2c_bus);
 	// // set up the IMU to put magnetometer data in the fifo too if enabled
 	// // don't do this anymore because it casues too many bad FIFO packets
@@ -1138,12 +1176,13 @@ int __dmp_set_fifo_rate(unsigned short rate)
 int __mpu_set_bypass(uint8_t bypass_on)
 {
 	uint8_t tmp = 0;
+	rc_i2c_set_device_address(config.i2c_bus, config.i2c_addr);
 	// set up USER_CTRL first
 	// DONT USE FIFO_EN_BIT in DMP mode, or the MPU will generate lots of
 	// unwanted interruptss
-	// if(dmp_en){
-	// 	tmp |= FIFO_EN_BIT; // enable fifo for dsp mode
-	// }
+	if(dmp_en){
+		tmp |= FIFO_EN_BIT; // enable fifo for dsp mode
+	}
 	if(!bypass_on){
 		tmp |= I2C_MST_EN; // i2c master mode when not in bypass
 	}
@@ -1166,117 +1205,6 @@ int __mpu_set_bypass(uint8_t bypass_on)
 	}
 	else{
 		bypass_en = 0;
-	}
-	return 0;
-}
-
-/*******************************************************************************
-* int __dmp_enable_feature(unsigned short mask)
-*
-* This is mostly taken from the Invensense DMP code and serves to turn on and
-* off DMP features based on the feature mask. We modified to remove some
-* irrelevant features and set our own fifo-length variable. This probably
-* isn't necessary to remain in its current form as rc_initialize_imu_dmp uses
-* a fixed set of features but we keep it as is since it works fine.
-*******************************************************************************/
-int __dmp_enable_feature(unsigned short mask)
-{
-	unsigned char tmp[10];
-	// Set integration scale factor.
-	tmp[0] = (unsigned char)((GYRO_SF >> 24) & 0xFF);
-	tmp[1] = (unsigned char)((GYRO_SF >> 16) & 0xFF);
-	tmp[2] = (unsigned char)((GYRO_SF >> 8) & 0xFF);
-	tmp[3] = (unsigned char)(GYRO_SF & 0xFF);
-	if(__mpu_write_mem(D_0_104, 4, tmp)<0){
-		fprintf(stderr, "ERROR: in dmp_enable_feature, failed to write mpu mem\n");
-		return -1;
-	}
-	// Send sensor data to the FIFO.
-	tmp[0] = 0xA3;
-	if (mask & DMP_FEATURE_SEND_RAW_ACCEL) {
-		tmp[1] = 0xC0;
-		tmp[2] = 0xC8;
-		tmp[3] = 0xC2;
-	} else {
-		tmp[1] = 0xA3;
-		tmp[2] = 0xA3;
-		tmp[3] = 0xA3;
-	}
-	if (mask & DMP_FEATURE_SEND_ANY_GYRO) {
-		tmp[4] = 0xC4;
-		tmp[5] = 0xCC;
-		tmp[6] = 0xC6;
-	} else {
-		tmp[4] = 0xA3;
-		tmp[5] = 0xA3;
-		tmp[6] = 0xA3;
-	}
-	tmp[7] = 0xA3;
-	tmp[8] = 0xA3;
-	tmp[9] = 0xA3;
-	if(__mpu_write_mem(CFG_15,10,tmp)<0){
-		fprintf(stderr, "ERROR: in dmp_enable_feature, failed to write mpu mem\n");
-		return -1;
-	}
-	// Send gesture data to the FIFO.
-	if (mask & (DMP_FEATURE_TAP | DMP_FEATURE_ANDROID_ORIENT)){
-		tmp[0] = DINA20;
-	}
-	else{
-		tmp[0] = 0xD8;
-	}
-	if(__mpu_write_mem(CFG_27,1,tmp)){
-		fprintf(stderr, "ERROR: in dmp_enable_feature, failed to write mpu mem\n");
-		return -1;
-	}
-	if(mask & DMP_FEATURE_GYRO_CAL){
-		__dmp_enable_gyro_cal(1);
-	}
-	else{
-		__dmp_enable_gyro_cal(0);
-	}
-	if (mask & DMP_FEATURE_SEND_ANY_GYRO) {
-		if (mask & DMP_FEATURE_SEND_CAL_GYRO) {
-			tmp[0] = 0xB2;
-			tmp[1] = 0x8B;
-			tmp[2] = 0xB6;
-			tmp[3] = 0x9B;
-		} else {
-			tmp[0] = DINAC0;
-			tmp[1] = DINA80;
-			tmp[2] = DINAC2;
-			tmp[3] = DINA90;
-		}
-		__mpu_write_mem(CFG_GYRO_RAW_DATA, 4, tmp);
-	}
-	// disable tap feature
-	tmp[0] = 0xD8;
-	__mpu_write_mem(CFG_20, 1, tmp);
-	// disable orientation feature
-	tmp[0] = 0xD8;
-	__mpu_write_mem(CFG_ANDROID_ORIENT_INT, 1, tmp);
-	if (mask & DMP_FEATURE_LP_QUAT){
-		__dmp_enable_lp_quat(1);
-	}
-	else{
-		__dmp_enable_lp_quat(0);
-	}
-	if (mask & DMP_FEATURE_6X_LP_QUAT){
-		__dmp_enable_6x_lp_quat(1);
-	}
-	else{
-		__dmp_enable_6x_lp_quat(0);
-	}
-	__mpu_reset_fifo();
-	packet_len = 0;
-	if(mask & DMP_FEATURE_SEND_RAW_ACCEL){
-		packet_len += 6;
-	}
-	if(mask & DMP_FEATURE_SEND_ANY_GYRO){
-		packet_len += 6;
-	}
-	if(mask & (DMP_FEATURE_LP_QUAT | DMP_FEATURE_6X_LP_QUAT)){
-		packet_len += 16;
 	}
 	return 0;
 }
@@ -1410,6 +1338,323 @@ int __dmp_set_interrupt_mode(unsigned char mode)
 	}
 }
 
+/**
+ *  @brief      Set tap threshold for a specific axis.
+ *  @param[in]  axis    1, 2, and 4 for XYZ accel, respectively.
+ *  @param[in]  thresh  Tap threshold, in mg/ms.
+ *  @return     0 if successful.
+ */
+int dmp_set_tap_thresh(unsigned char axis, unsigned short thresh)
+{
+    unsigned char tmp[4];
+    float scaled_thresh;
+    unsigned short dmp_thresh, dmp_thresh_2;
+    if (!(axis & TAP_XYZ) || thresh > 1600)
+        return -1;
+
+    scaled_thresh = (float)thresh / DMP_SAMPLE_RATE;
+
+    switch (config.accel_fsr) {
+    case ACCEL_FSR_2G:
+        dmp_thresh = (unsigned short)(scaled_thresh * 16384);
+        /* dmp_thresh * 0.75 */
+        dmp_thresh_2 = (unsigned short)(scaled_thresh * 12288);
+        break;
+    case ACCEL_FSR_4G:
+        dmp_thresh = (unsigned short)(scaled_thresh * 8192);
+        /* dmp_thresh * 0.75 */
+        dmp_thresh_2 = (unsigned short)(scaled_thresh * 6144);
+        break;
+    case ACCEL_FSR_8G:
+        dmp_thresh = (unsigned short)(scaled_thresh * 4096);
+        /* dmp_thresh * 0.75 */
+        dmp_thresh_2 = (unsigned short)(scaled_thresh * 3072);
+        break;
+    case ACCEL_FSR_16G:
+        dmp_thresh = (unsigned short)(scaled_thresh * 2048);
+        /* dmp_thresh * 0.75 */
+        dmp_thresh_2 = (unsigned short)(scaled_thresh * 1536);
+        break;
+    default:
+        return -1;
+    }
+    tmp[0] = (unsigned char)(dmp_thresh >> 8);
+    tmp[1] = (unsigned char)(dmp_thresh & 0xFF);
+    tmp[2] = (unsigned char)(dmp_thresh_2 >> 8);
+    tmp[3] = (unsigned char)(dmp_thresh_2 & 0xFF);
+
+    if (axis & TAP_X) {
+        if (__mpu_write_mem(DMP_TAP_THX, 2, tmp))
+            return -1;
+        if (__mpu_write_mem(D_1_36, 2, tmp+2))
+            return -1;
+    }
+    if (axis & TAP_Y) {
+        if (__mpu_write_mem(DMP_TAP_THY, 2, tmp))
+            return -1;
+        if (__mpu_write_mem(D_1_40, 2, tmp+2))
+            return -1;
+    }
+    if (axis & TAP_Z) {
+        if (__mpu_write_mem(DMP_TAP_THZ, 2, tmp))
+            return -1;
+        if (__mpu_write_mem(D_1_44, 2, tmp+2))
+            return -1;
+    }
+    return 0;
+}
+
+/**
+ *  @brief      Set which axes will register a tap.
+ *  @param[in]  axis    1, 2, and 4 for XYZ, respectively.
+ *  @return     0 if successful.
+ */
+int dmp_set_tap_axes(unsigned char axis)
+{
+    unsigned char tmp = 0;
+
+    if (axis & TAP_X)
+        tmp |= 0x30;
+    if (axis & TAP_Y)
+        tmp |= 0x0C;
+    if (axis & TAP_Z)
+        tmp |= 0x03;
+    return __mpu_write_mem(D_1_72, 1, &tmp);
+}
+
+/**
+ *  @brief      Set minimum number of taps needed for an interrupt.
+ *  @param[in]  min_taps    Minimum consecutive taps (1-4).
+ *  @return     0 if successful.
+ */
+int dmp_set_tap_count(unsigned char min_taps)
+{
+    unsigned char tmp;
+
+    if (min_taps < 1)
+        min_taps = 1;
+    else if (min_taps > 4)
+        min_taps = 4;
+
+    tmp = min_taps - 1;
+    return __mpu_write_mem(D_1_79, 1, &tmp);
+}
+
+/**
+ *  @brief      Set length between valid taps.
+ *  @param[in]  time    Milliseconds between taps.
+ *  @return     0 if successful.
+ */
+int dmp_set_tap_time(unsigned short time)
+{
+    unsigned short dmp_time;
+    unsigned char tmp[2];
+
+    dmp_time = time / (1000 / DMP_SAMPLE_RATE);
+    tmp[0] = (unsigned char)(dmp_time >> 8);
+    tmp[1] = (unsigned char)(dmp_time & 0xFF);
+    return __mpu_write_mem(DMP_TAPW_MIN, 2, tmp);
+}
+
+/**
+ *  @brief      Set max time between taps to register as a multi-tap.
+ *  @param[in]  time    Max milliseconds between taps.
+ *  @return     0 if successful.
+ */
+int dmp_set_tap_time_multi(unsigned short time)
+{
+    unsigned short dmp_time;
+    unsigned char tmp[2];
+
+    dmp_time = time / (1000 / DMP_SAMPLE_RATE);
+    tmp[0] = (unsigned char)(dmp_time >> 8);
+    tmp[1] = (unsigned char)(dmp_time & 0xFF);
+    return __mpu_write_mem(D_1_218, 2, tmp);
+}
+
+/**
+ *  @brief      Set shake rejection threshold.
+ *  If the DMP detects a gyro sample larger than @e thresh, taps are rejected.
+ *  @param[in]  sf      Gyro scale factor.
+ *  @param[in]  thresh  Gyro threshold in dps.
+ *  @return     0 if successful.
+ */
+int dmp_set_shake_reject_thresh(long sf, unsigned short thresh)
+{
+    unsigned char tmp[4];
+    long thresh_scaled = sf / 1000 * thresh;
+    tmp[0] = (unsigned char)(((long)thresh_scaled >> 24) & 0xFF);
+    tmp[1] = (unsigned char)(((long)thresh_scaled >> 16) & 0xFF);
+    tmp[2] = (unsigned char)(((long)thresh_scaled >> 8) & 0xFF);
+    tmp[3] = (unsigned char)((long)thresh_scaled & 0xFF);
+    return __mpu_write_mem(D_1_92, 4, tmp);
+}
+
+/**
+ *  @brief      Set shake rejection time.
+ *  Sets the length of time that the gyro must be outside of the threshold set
+ *  by @e gyro_set_shake_reject_thresh before taps are rejected. A mandatory
+ *  60 ms is added to this parameter.
+ *  @param[in]  time    Time in milliseconds.
+ *  @return     0 if successful.
+ */
+int dmp_set_shake_reject_time(unsigned short time)
+{
+    unsigned char tmp[2];
+
+    time /= (1000 / DMP_SAMPLE_RATE);
+    tmp[0] = time >> 8;
+    tmp[1] = time & 0xFF;
+    return __mpu_write_mem(D_1_90,2,tmp);
+}
+
+/**
+ *  @brief      Set shake rejection timeout.
+ *  Sets the length of time after a shake rejection that the gyro must stay
+ *  inside of the threshold before taps can be detected again. A mandatory
+ *  60 ms is added to this parameter.
+ *  @param[in]  time    Time in milliseconds.
+ *  @return     0 if successful.
+ */
+int dmp_set_shake_reject_timeout(unsigned short time)
+{
+    unsigned char tmp[2];
+
+    time /= (1000 / DMP_SAMPLE_RATE);
+    tmp[0] = time >> 8;
+    tmp[1] = time & 0xFF;
+    return __mpu_write_mem(D_1_88,2,tmp);
+}
+
+/*******************************************************************************
+* int __dmp_enable_feature(unsigned short mask)
+*
+* This is mostly taken from the Invensense DMP code and serves to turn on and
+* off DMP features based on the feature mask. We modified to remove some
+* irrelevant features and set our own fifo-length variable. This probably
+* isn't necessary to remain in its current form as rc_initialize_imu_dmp uses
+* a fixed set of features but we keep it as is since it works fine.
+*******************************************************************************/
+int __dmp_enable_feature(unsigned short mask)
+{
+	unsigned char tmp[10];
+	// Set integration scale factor.
+	tmp[0] = (unsigned char)((GYRO_SF >> 24) & 0xFF);
+	tmp[1] = (unsigned char)((GYRO_SF >> 16) & 0xFF);
+	tmp[2] = (unsigned char)((GYRO_SF >> 8) & 0xFF);
+	tmp[3] = (unsigned char)(GYRO_SF & 0xFF);
+	if(__mpu_write_mem(D_0_104, 4, tmp)<0){
+		fprintf(stderr, "ERROR: in dmp_enable_feature, failed to write mpu mem\n");
+		return -1;
+	}
+	// Send sensor data to the FIFO.
+	tmp[0] = 0xA3;
+	if (mask & DMP_FEATURE_SEND_RAW_ACCEL) {
+		tmp[1] = 0xC0;
+		tmp[2] = 0xC8;
+		tmp[3] = 0xC2;
+	} else {
+		tmp[1] = 0xA3;
+		tmp[2] = 0xA3;
+		tmp[3] = 0xA3;
+	}
+	if (mask & DMP_FEATURE_SEND_ANY_GYRO) {
+		tmp[4] = 0xC4;
+		tmp[5] = 0xCC;
+		tmp[6] = 0xC6;
+	} else {
+		tmp[4] = 0xA3;
+		tmp[5] = 0xA3;
+		tmp[6] = 0xA3;
+	}
+	tmp[7] = 0xA3;
+	tmp[8] = 0xA3;
+	tmp[9] = 0xA3;
+	if(__mpu_write_mem(CFG_15,10,tmp)<0){
+		fprintf(stderr, "ERROR: in dmp_enable_feature, failed to write mpu mem\n");
+		return -1;
+	}
+	// Send gesture data to the FIFO.
+	if (mask & (DMP_FEATURE_TAP | DMP_FEATURE_ANDROID_ORIENT)){
+		tmp[0] = DINA20;
+	}
+	else{
+		tmp[0] = 0xD8;
+	}
+	if(__mpu_write_mem(CFG_27,1,tmp)){
+		fprintf(stderr, "ERROR: in dmp_enable_feature, failed to write mpu mem\n");
+		return -1;
+	}
+	if(mask & DMP_FEATURE_GYRO_CAL){
+		__dmp_enable_gyro_cal(1);
+	}
+	else{
+		__dmp_enable_gyro_cal(0);
+	}
+	if (mask & DMP_FEATURE_SEND_ANY_GYRO) {
+		if (mask & DMP_FEATURE_SEND_CAL_GYRO) {
+			tmp[0] = 0xB2;
+			tmp[1] = 0x8B;
+			tmp[2] = 0xB6;
+			tmp[3] = 0x9B;
+		} else {
+			tmp[0] = DINAC0;
+			tmp[1] = DINA80;
+			tmp[2] = DINAC2;
+			tmp[3] = DINA90;
+		}
+		__mpu_write_mem(CFG_GYRO_RAW_DATA, 4, tmp);
+	}
+
+	// configure tap feature
+	if (mask & DMP_FEATURE_TAP) {
+		/* Enable tap. */
+		tmp[0] = 0xF8;
+		__mpu_write_mem(CFG_20, 1, tmp);
+		dmp_set_tap_thresh(TAP_XYZ, 250);
+		dmp_set_tap_axes(TAP_XYZ);
+		dmp_set_tap_count(1);
+		dmp_set_tap_time(100);
+		dmp_set_tap_time_multi(500);
+
+		dmp_set_shake_reject_thresh(GYRO_SF, 200);
+		dmp_set_shake_reject_time(40);
+		dmp_set_shake_reject_timeout(10);
+	} else {
+		tmp[0] = 0xD8;
+		__mpu_write_mem(CFG_20, 1, tmp);
+	}
+
+
+	// disable orientation feature
+	tmp[0] = 0xD8;
+	__mpu_write_mem(CFG_ANDROID_ORIENT_INT, 1, tmp);
+
+	if (mask & DMP_FEATURE_LP_QUAT){
+		__dmp_enable_lp_quat(1);
+	}
+	else{
+		__dmp_enable_lp_quat(0);
+	}
+	if (mask & DMP_FEATURE_6X_LP_QUAT){
+		__dmp_enable_6x_lp_quat(1);
+	}
+	else{
+		__dmp_enable_6x_lp_quat(0);
+	}
+	__mpu_reset_fifo();
+	packet_len = 0;
+	if(mask & DMP_FEATURE_SEND_RAW_ACCEL){
+		packet_len += 6;
+	}
+	if(mask & DMP_FEATURE_SEND_ANY_GYRO){
+		packet_len += 6;
+	}
+	if(mask & (DMP_FEATURE_LP_QUAT | DMP_FEATURE_6X_LP_QUAT)){
+		packet_len += 16;
+	}
+	return 0;
+}
 /*******************************************************************************
 * int __set_int_enable(unsigned char enable)
 *
@@ -1471,8 +1716,8 @@ int __mpu_set_dmp_state(unsigned char enable)
 	if (enable) {
 		// Disable data ready interrupt.
 		__set_int_enable(0);
-		// Disable bypass mode.
-		__mpu_set_bypass(0);
+		// make sure bypass mode is enabled
+		__mpu_set_bypass(1);
 		// Remove FIFO elements.
 		rc_i2c_write_byte(config.i2c_bus, FIFO_EN , 0);
 		// Enable DMP interrupt.

@@ -146,7 +146,7 @@ rc_imu_config_t rc_default_imu_config()
 	conf.dmp_sample_rate = 100;
 	conf.dmp_fetch_accel_gyro = 0;
 	conf.orientation = ORIENTATION_Z_UP;
-	conf.compass_time_constant = 5.0;
+	conf.compass_time_constant = 20.0;
 	conf.dmp_interrupt_priority = sched_get_priority_max(SCHED_FIFO)-1;
 	conf.read_mag_after_interrupt = 1;
 	conf.mag_sample_rate_div = 4;
@@ -460,7 +460,7 @@ int __check_who_am_i(){
 	// check which chip we are looking at
 	// 0x71 for mpu9250, 0x75 for mpu9255, or 0x68 for mpu9150
 	if(c!=0x71 && c!=0x75 && c!=0x68){
-		fprintf(stderr,"Error in rc_initialize_imu_dmp, invalid who_am_i register: 0x%x\n", c);
+		fprintf(stderr,"invalid who_am_i register: 0x%x\n", c);
 		fprintf(stderr,"expected 0x71 for mpu9250, 0x75 for mpu9255, or 0x68 for mpu9150\n");
 		return -1;
 	}
@@ -924,13 +924,12 @@ int rc_initialize_imu_dmp(rc_imu_data_t *data, rc_imu_config_t conf)
 		return -1;
 	}
 
-	// // set interrupt mode to continuous as opposed to GESTURE
-	// //if(__dmp_set_interrupt_mode(DMP_INT_CONTINUOUS)<0){
-	// if(__dmp_set_interrupt_mode(DMP_INT_GESTURE)<0){
-	// 	fprintf(stderr,"ERROR: failed to set DMP interrupt mode to continuous\n");
-	// 	rc_i2c_release_bus(config.i2c_bus);
-	// 	return -1;
-	// }
+	// set interrupt mode to continuous as opposed to GESTURE
+	if(__dmp_set_interrupt_mode(DMP_INT_CONTINUOUS)<0){
+		fprintf(stderr,"ERROR: failed to set DMP interrupt mode to continuous\n");
+		rc_i2c_release_bus(config.i2c_bus);
+		return -1;
+	}
 
 
 	rc_i2c_release_bus(config.i2c_bus);
@@ -1287,14 +1286,19 @@ int __mpu_reset_fifo(void)
 	// make sure the i2c address is set correctly.
 	// this shouldn't take any time at all if already set
 	rc_i2c_set_device_address(config.i2c_bus, config.i2c_addr);
+	// turn off interrupts, fifo, and usr_ctrl which is where the dmp fifo is enabled
 	data = 0;
 	if (rc_i2c_write_byte(config.i2c_bus, INT_ENABLE, data)) return -1;
-	//if (rc_i2c_write_byte(config.i2c_bus, FIFO_EN, data)) return -1;
-	//if (rc_i2c_write_byte(config.i2c_bus, USER_CTRL, data)) return -1;
+	if (rc_i2c_write_byte(config.i2c_bus, FIFO_EN, data)) return -1;
+	if (rc_i2c_write_byte(config.i2c_bus, USER_CTRL, data)) return -1;
+
+	// reset fifo and wait
 	data = BIT_FIFO_RST | BIT_DMP_RST;
 	if (rc_i2c_write_byte(config.i2c_bus, USER_CTRL, data)) return -1;
-	rc_usleep(1000);
+	//rc_usleep(1000); // how I had it
+	rc_usleep(50000); // invensense standard
 
+	// enable the fifo and DMP fifo flags again
 	// enabling DMP but NOT BIT_FIFO_EN gives quat out of bounds
 	// but also no empty interrupts
 	data = BIT_DMP_EN | BIT_FIFO_EN;
@@ -1302,16 +1306,12 @@ int __mpu_reset_fifo(void)
 		return -1;
 	}
 
-	// fifo still enabled, just extra features like slave turned off
-	//rc_i2c_write_byte(config.i2c_bus, FIFO_EN, FIFO_SLV0_EN);
-	if(dmp_en){
-		// necessary for DMP to operate!
-		rc_i2c_write_byte(config.i2c_bus, INT_ENABLE, BIT_DMP_INT_EN);
-		//rc_i2c_write_byte(config.i2c_bus, INT_ENABLE, 0);
-	}
-	else{
-		rc_i2c_write_byte(config.i2c_bus, INT_ENABLE, 0);
-	}
+	// turn on dmp interrupt enable bit again
+	data = BIT_DMP_INT_EN;
+	if (rc_i2c_write_byte(config.i2c_bus, INT_ENABLE, data)) return -1;
+	data = 0;
+	if (rc_i2c_write_byte(config.i2c_bus, FIFO_EN, data)) return -1;
+
 	return 0;
 }
 
@@ -1585,12 +1585,10 @@ int __dmp_enable_feature(unsigned short mask)
 		fprintf(stderr, "ERROR: in dmp_enable_feature, failed to write mpu mem\n");
 		return -1;
 	}
-	if(mask & DMP_FEATURE_GYRO_CAL){
-		__dmp_enable_gyro_cal(1);
-	}
-	else{
-		__dmp_enable_gyro_cal(0);
-	}
+
+	if(mask & DMP_FEATURE_GYRO_CAL) __dmp_enable_gyro_cal(1);
+	else __dmp_enable_gyro_cal(0);
+
 	if (mask & DMP_FEATURE_SEND_ANY_GYRO) {
 		if (mask & DMP_FEATURE_SEND_CAL_GYRO) {
 			tmp[0] = 0xB2;
@@ -1626,8 +1624,10 @@ int __dmp_enable_feature(unsigned short mask)
 	}
 
 
-	// disable orientation feature
-	tmp[0] = 0xD8;
+	if (mask & DMP_FEATURE_ANDROID_ORIENT) {
+		tmp[0] = 0xD9;
+	} else
+		tmp[0] = 0xD8;
 	__mpu_write_mem(CFG_ANDROID_ORIENT_INT, 1, tmp);
 
 	if (mask & DMP_FEATURE_LP_QUAT){
@@ -2888,7 +2888,7 @@ int rc_calibrate_mag_routine(rc_imu_config_t config)
 	if( lengths.d[0]>200 || lengths.d[0]<5 || \
 		lengths.d[1]>200 || lengths.d[1]<5 || \
 		lengths.d[2]>200 || lengths.d[2]<5){
-		fprintf(stderr,"ERROR: length of fitted ellipsoid out of bounds\n");
+		fprintf(stderr,"WARNING: length of fitted ellipsoid out of bounds\n");
 		//rc_free_vector(&center);
 		//rc_free_vector(&lengths);
 		//return -1;

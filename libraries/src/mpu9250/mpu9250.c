@@ -862,6 +862,14 @@ int rc_initialize_imu_dmp(rc_imu_data_t *data, rc_imu_config_t conf)
 		rc_i2c_release_bus(config.i2c_bus);
 		return -1;
 	}
+
+	// enable bypass, more importantly this also configures the interrupt pin behavior
+	if(__mpu_set_bypass(1)){
+		fprintf(stderr, "failed to run __mpu_set_bypass\n");
+		rc_i2c_release_bus(config.i2c_bus);
+		return -1;
+	}
+
 	// initialize the magnetometer too if requested in config
 	if(conf.enable_magnetometer){
 		if(__init_magnetometer()){
@@ -898,8 +906,9 @@ int rc_initialize_imu_dmp(rc_imu_data_t *data, rc_imu_config_t conf)
 	/// enbale quaternion feature and accel/gyro if requested
 	// due to a known bug in the DMP, the tap feature must be enabled to
 	// get interrupts slower than 200hz
-	//unsigned short feature_mask = DMP_FEATURE_6X_LP_QUAT|DMP_FEATURE_TAP;
-	unsigned short feature_mask = DMP_FEATURE_6X_LP_QUAT;
+	//unsigned short feature_mask = DMP_FEATURE_6X_LP_QUAT|DMP_FEATURE_TAP|DMP_FEATURE_ANDROID_ORIENT;
+	unsigned short feature_mask = DMP_FEATURE_6X_LP_QUAT|DMP_FEATURE_TAP;
+	//unsigned short feature_mask = DMP_FEATURE_6X_LP_QUAT;
 	if(config.dmp_fetch_accel_gyro){
 		feature_mask|=DMP_FEATURE_SEND_RAW_ACCEL|DMP_FEATURE_SEND_RAW_GYRO;
 	}
@@ -924,12 +933,12 @@ int rc_initialize_imu_dmp(rc_imu_data_t *data, rc_imu_config_t conf)
 		return -1;
 	}
 
-	// set interrupt mode to continuous as opposed to GESTURE
-	if(__dmp_set_interrupt_mode(DMP_INT_CONTINUOUS)<0){
-		fprintf(stderr,"ERROR: failed to set DMP interrupt mode to continuous\n");
-		rc_i2c_release_bus(config.i2c_bus);
-		return -1;
-	}
+	// // set interrupt mode to continuous as opposed to GESTURE
+	// if(__dmp_set_interrupt_mode(DMP_INT_CONTINUOUS)<0){
+	// 	fprintf(stderr,"ERROR: failed to set DMP interrupt mode to continuous\n");
+	// 	rc_i2c_release_bus(config.i2c_bus);
+	// 	return -1;
+	// }
 
 
 	rc_i2c_release_bus(config.i2c_bus);
@@ -1191,8 +1200,8 @@ int __mpu_set_bypass(uint8_t bypass_on)
 	}
 	rc_usleep(3000);
 	// INT_PIN_CFG settings
-	tmp = LATCH_INT_EN | INT_ANYRD_CLEAR | ACTL_ACTIVE_LOW;
-	//tmp =  ACTL_ACTIVE_LOW;
+	//tmp = LATCH_INT_EN | INT_ANYRD_CLEAR | ACTL_ACTIVE_LOW; // latching
+	tmp =  ACTL_ACTIVE_LOW;	// non-latching
 	if(bypass_on)
 		tmp |= BYPASS_EN;
 	if (rc_i2c_write_byte(config.i2c_bus, INT_PIN_CFG, tmp)){
@@ -1653,6 +1662,9 @@ int __dmp_enable_feature(unsigned short mask)
 	if(mask & (DMP_FEATURE_LP_QUAT | DMP_FEATURE_6X_LP_QUAT)){
 		packet_len += 16;
 	}
+	if(mask & (DMP_FEATURE_TAP | DMP_FEATURE_ANDROID_ORIENT)){
+		packet_len += 4;
+	}
 	return 0;
 }
 /*******************************************************************************
@@ -1888,7 +1900,6 @@ int __read_dmp_fifo(rc_imu_data_t* data)
 {
 	unsigned char raw[MAX_FIFO_BUFFER];
 	long quat_q14[4], quat[4], quat_mag_sq;
-	//int16_t mag_adc[3];
 	uint16_t fifo_count;
 	int ret;
 	//int mag_data_available
@@ -1896,7 +1907,6 @@ int __read_dmp_fifo(rc_imu_data_t* data)
 	int i = 0; // position of beginning of quaternion
 	int j = 0; // position of beginning of accel/gyro data
 	static int first_run = 1; // set to 0 after first call
-	//float factory_cal_data[3]; // just temp holder for mag data
 	double q_tmp[4];
 	double sum,qlen;
 
@@ -1924,9 +1934,9 @@ int __read_dmp_fifo(rc_imu_data_t* data)
 		}
 		return -1;
 	}
-	#ifdef DEBUG
+	//#ifdef DEBUG
 	printf("fifo_count: %d\n", fifo_count);
-	#endif
+	//#endif
 
 	/***************************************************************************
 	* now that we see how many values are in the buffer, we have a long list of

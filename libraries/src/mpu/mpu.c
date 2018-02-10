@@ -115,7 +115,7 @@ static int __dmp_set_interrupt_mode(unsigned char mode);
 static int __load_gyro_offets();
 static int __load_mag_calibration();
 static int __write_mag_cal_to_disk(float offsets[3], float scale[3]);
-static void* __imu_interrupt_handler(void* ptr);
+static void* __dmp_interrupt_handler(void* ptr);
 static int __read_dmp_fifo(rc_mpu_data_t* data);
 static int __data_fusion(rc_mpu_data_t* data);
 
@@ -979,7 +979,7 @@ int rc_mpu_initialize_dmp(rc_mpu_data_t *data, rc_mpu_config_t conf)
 	tap_callback_func=NULL;
 
 	// start the thread
-	if(rc_pthread_create(&imu_interrupt_thread, __imu_interrupt_handler,NULL,
+	if(rc_pthread_create(&imu_interrupt_thread, __dmp_interrupt_handler,NULL,
 			config.dmp_interrupt_priority, config.dmp_interrupt_sched_policy)<0){
 		fprintf(stderr,"ERROR failed to start dmp handler thread\n");
 		return -1;
@@ -1755,14 +1755,14 @@ int __mpu_set_dmp_state(unsigned char enable)
 }
 
 /*******************************************************************************
-* void* __imu_interrupt_handler(void* ptr)
+* void* __dmp_interrupt_handler(void* ptr)
 *
 * Here is where the magic happens. This function runs as its own thread and
 * monitors the gpio pin config.gpio_interrupt_pin with the blocking function call
 * poll(). If a valid interrupt is received from the IMU then mark the timestamp,
 * read in the IMU data, and call the user-defined interrupt function if set.
 *******************************************************************************/
-void* __imu_interrupt_handler( __unused void* ptr)
+void* __dmp_interrupt_handler( __unused void* ptr)
 {
 	struct pollfd fdset[1];
 	int ret;
@@ -1789,7 +1789,10 @@ void* __imu_interrupt_handler( __unused void* ptr)
 		}
 		else if (fdset[0].revents & POLLPRI) {
 			lseek(fdset[0].fd, 0, SEEK_SET);
-			read(fdset[0].fd, buf, 64);
+			if(read(fdset[0].fd, buf, 64)==-1){
+				perror("ERROR in __dmp_interrupt_handler, failed to read gpio value FD");
+				continue();
+			}
 			// interrupt received, mark the timestamp
 			last_interrupt_timestamp_nanos = rc_nanos_since_epoch();
 			// try to load fifo no matter the claim bus state
@@ -2371,7 +2374,9 @@ int __load_gyro_offets()
 	}
 	else {
 		// read in data
-		fscanf(cal,"%d\n%d\n%d\n", &x,&y,&z);
+		if(fscanf(cal,"%d\n%d\n%d\n", &x,&y,&z)!=3){
+
+		}
 		fclose(cal);
 	}
 

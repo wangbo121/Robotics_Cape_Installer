@@ -191,11 +191,7 @@ int rc_gpio_get_value(int pin)
 		perror("ERROR in rc_gpio_print_value, can't read value fd");
 		return -1;
 	}
-	ret=read(fd, &ch, 1);
-	if(ret==-1){
-		perror("ERROR: in rc_gpio_get_value while reading from fd");
-		return -1;
-	}
+	read(fd, &ch, 1);
 	if(ch == '0') ret=0;
 	else if(likely(ch == '1')) ret=1;
 	else{
@@ -302,7 +298,7 @@ int rc_gpio_print_dir(int pin)
 
 	// replace newline character with null character
 	for(i=0;i<4;i++) if(dir[i]==0x0A) dir[i]=0;
-	fprintf(stderr,"%s",dir);
+	fprintf(stderr,dir);
 	return 0;
 }
 

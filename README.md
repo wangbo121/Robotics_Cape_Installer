@@ -1,4 +1,5 @@
-Robotics Cape Library Installer 
+Robotics Cape Library Installer                   {#mainpage}
+===============================
 
 For BeagleBone Black and BeagleBone Blue running Debian Jessie.
 

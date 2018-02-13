@@ -1,11 +1,7 @@
 /*******************************************************************************
 * INITIALIZATION AND CLEANUP
 *
-* Because the Robotics Cape library is tightly integrated with hardware and
-* utilizes background threads, it is critical that the user calls
-* rc_initialize() and rc_cleanup() at the beginning and end of their programs to
-* ensure predictable operation. These methods, also enable the following two
-* features.
+
 *
 * Firstly, to ensure only one program interfaces with the Robotics Cape core
 * functions at once, it  makes a PID file in /var/run/ called robotics.pid that
@@ -117,8 +113,6 @@
 *******************************************************************************/
 #ifndef RC_STATE_H
 #define RC_STATE_H
-
-#include "preprocessor_macros.h"
 
 typedef enum rc_state_t {
 	UNINITIALIZED,

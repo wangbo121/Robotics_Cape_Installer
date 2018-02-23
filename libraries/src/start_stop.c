@@ -1,21 +1,20 @@
-/*******************************************************************************
-* flow.c
-*
-* program flow state variable and signal handlers for coordinating the safe
-* running and shutdown of single or multi-threaded processes.
-*******************************************************************************/
+/**
+ * @file start_stop.c
+ *
+ * @author     James Strawson
+ * @date       2/1/2018
+ */
 
 #include <stdio.h>
 #include <signal.h>
 #include <stdlib.h> // for system()
 #include <unistd.h> // for access()
-#include "rc/flow.h"
-#include "rc/time.h"
-#include "rc/preprocessor_macros.h"
+#include <rc/start_stop.h>
+#include <rc/time.h>
 
-#define PID_FILE "/var/run/robotics_cape.pid"
 
-// global roboticscape state
+
+// global process state
 static enum rc_state_t rc_state = UNINITIALIZED;
 
 // local function declarations
@@ -23,34 +22,19 @@ static void shutdown_signal_handler(int signum);
 static void segfault_handler(int signum, siginfo_t *info, void *context);
 
 
-/*******************************************************************************
-* rc_state_t rc_get_state()
-*
-* returns the high-level robot state variable
-* use this for managing how your threads start and stop
-*******************************************************************************/
 rc_state_t rc_get_state()
 {
 	return rc_state;
 }
 
-/*******************************************************************************
-* int rc_set_state(rc_state_t new_state)
-*
-* sets the high-level robot state variable
-* use this for managing how your threads start and stop
-*******************************************************************************/
-int rc_set_state(rc_state_t new_state)
+
+void rc_set_state(rc_state_t new_state)
 {
 	rc_state = new_state;
-	return 0;
+	return;
 }
 
-/*******************************************************************************
-* int rc_print_state()
-*
-* Prints the textual name of the state to the current state to the screen.
-*******************************************************************************/
+
 int rc_print_state()
 {
 	switch(rc_state){
@@ -74,30 +58,19 @@ int rc_print_state()
 }
 
 
-
-
-/*******************************************************************************
-* int rc_make_pid_file()
-*
-* writes a PID file /var/run/robotics_cape.pid containing the current PID of
-* your process. Returns 0 if successful. If that file already exists then it is
-* not touched and this function returns 1 at which point we suggest you run
-* rc_kill() to kill that process. Returns -1 if there is some other problem
-* writing to the file.
-*******************************************************************************/
 int rc_make_pid_file()
 {
 	FILE *fd;
 	pid_t current_pid;
 	// start by checking if a pid file exists
-	if(access(PID_FILE, F_OK ) == 0){
+	if(access(RC_PID_FILE, F_OK ) == 0){
 		fprintf(stderr,"ERROR: PID file already exists, a new one was not written\n");
 		return 1;
 	}
 	// open new file for writing
-	fd = fopen(PID_FILE, "ab+");
+	fd = fopen(RC_PID_FILE, "ab+");
 	if (fd == NULL) {
-		fprintf(stderr,"error opening PID_FILE for writing\n");
+		fprintf(stderr,"error opening RC_PID_FILE for writing\n");
 		return -1;
 	}
 	current_pid = getpid();
@@ -107,34 +80,20 @@ int rc_make_pid_file()
 	return 0;
 }
 
-/*******************************************************************************
-* int rc_kill()
-*
-* This function is used to make sure any existing program using the PID file
-* is stopped. The user doesn't need to integrate
-* this in their own program  However, the user may
-* call the rc_kill example program from the command line to close whatever
-* program is running in the background.
-*
-* return values:
-* -2 : unreadable or invalid contents in PID_FILE
-* -1 : existing project failed to close cleanly and had to be killed
-*  0 : No existing program is running
-*  1 : An existing program was running but it shut down cleanly.
-*******************************************************************************/
-int rc_kill()
+
+int rc_kill_existing_process()
 {
 	FILE* fd;
 	int old_pid, i;
 	// start by checking if a pid file exists
-	if(access(PID_FILE, F_OK ) != 0){
+	if(access(RC_PID_FILE, F_OK ) != 0){
 		// PID file missing, nothing is running
 		return 0;
 	}
 	// attempt to open PID file if it fails something very wrong with it
-	fd = fopen(PID_FILE, "r");
+	fd = fopen(RC_PID_FILE, "r");
 	if(fd==NULL){
-		remove(PID_FILE);
+		remove(RC_PID_FILE);
 		return -2;
 	}
 	// try to read the current process ID
@@ -144,7 +103,7 @@ int rc_kill()
 	// if the file didn't contain a PID number, remove it and
 	// return -2 indicating weird behavior
 	if(old_pid == 0){
-		remove(PID_FILE);
+		remove(RC_PID_FILE);
 		return -2;
 	}
 
@@ -154,7 +113,7 @@ int rc_kill()
 	// now see if the process for the read pid is still running
 	if(getpgid(old_pid) < 0){
 		// process not running, remove the pid file
-		remove(PID_FILE);
+		remove(RC_PID_FILE);
 		return 0;
 	}
 
@@ -165,7 +124,7 @@ int rc_kill()
 	for(i=0; i<30; i++){
 		if(getpgid(old_pid) >= 0) rc_usleep(100000);
 		else{ // succcess, it shut down properly
-			remove(PID_FILE);
+			remove(RC_PID_FILE);
 			return 1;
 		}
 	}
@@ -174,23 +133,16 @@ int rc_kill()
 	rc_usleep(500000);
 
 	// delete the old PID file if it was left over
-	remove(PID_FILE);
+	remove(RC_PID_FILE);
 	// return -1 indicating the program had to be killed
 	return -1;
 }
 
 
-/*******************************************************************************
-* int rc_remove_pid_file()
-*
-* removes PID file created by rc_make_pid_file(). This should be called before
-* your program closes to make sure it's not left behind. Returns 0 whether or
-* not the file was actually there. Returns -1 if there was a filesystem error.
-*******************************************************************************/
 int rc_remove_pid_file()
 {
 	// if PID file exists, remove it
-	if(access(PID_FILE, F_OK ) == 0) return remove(PID_FILE);
+	if(access(RC_PID_FILE, F_OK ) == 0) return remove(RC_PID_FILE);
 	return 0;
 }
 
@@ -200,13 +152,7 @@ int rc_remove_pid_file()
 /*******************************************************************************
 * @ int rc_enable_signal_handler
 *
-* Enables a signal handler that catches SIGINT & SIGTERM to set rc_state to
-* EXITING indicating to your program to shut down cleanly instead of stopping
-* immediately as is the defualt value. SIGHUP is ignored to prevent your program
-* from stopping due to loose USB network connection. Also segfaults will be
-* caught and print some debugging info to the screen before setting rc_state to
-* EXITING. Returns 0 on success or -1 if there was an error setting the signal
-* handlers
+*
 *******************************************************************************/
 int rc_enable_signal_handler()
 {
@@ -279,7 +225,7 @@ int rc_disable_signal_handler()
 *
 * custom segfault catcher to show useful info
 *******************************************************************************/
-static void segfault_handler(__unused int signum, siginfo_t *info, __unused void *context)
+static void segfault_handler(__attribute__ ((unused)) int signum, siginfo_t *info, __attribute__ ((unused)) void *context)
 {
 	fprintf(stderr, "ERROR: Segmentation Fault\n");
 	fprintf(stderr, "Fault address: %p\n", info->si_addr);

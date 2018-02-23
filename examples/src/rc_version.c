@@ -2,7 +2,7 @@
  * @file rc_version.c
  * @example    rc_version
  *
- * @brief      prints the current versino of the Robotics Cape Library
+ * Prints the current version of the Robotics Cape Library.
  *
  *
  *

@@ -29,15 +29,37 @@
 * a voltage. ch must be from 0 to 6.
 *
 * See the test_adc example for sample use case.
+ *
+ * @addtogroup ADC
+ * @{
 ******************************************************************************/
 
 #ifndef RC_ADC_H
 #define RC_ADC_H
 
-int   rc_adc_init();
-float rc_battery_voltage();
-float rc_dc_jack_voltage();
-int   rc_adc_raw(int ch);
-float rc_adc_volt(int ch);
+
+#ifdef  __cplusplus
+extern "C" {
+#endif
+
+int rc_adc_init();
+
+int rc_adc_cleanup();
+
+int rc_adc_read_raw(int ch);
+
+float rc_adc_read_volt(int ch);
+
+float rc_adc_battery_volt();
+
+float rc_adc_dc_jack_volt();
+
+
+
+#ifdef  __cplusplus
+}
+#endif
 
 #endif // RC_ADC_H
+
+/** @}  end group time*/

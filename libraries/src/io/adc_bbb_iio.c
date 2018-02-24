@@ -47,7 +47,7 @@ int rc_adc_init()
 		temp_fd = open(buf, O_RDONLY);
 		if(temp_fd<0){
 			perror("ERROR in rc_adc_init, failed to open iio adc interface\n");
-			fprintf(stderr,"Perhaps kenerl or device tree is too old\n");
+			fprintf(stderr,"Perhaps kernel or device tree is too old\n");
 			return -1;
 		}
 		fd[i]=temp_fd;
@@ -77,10 +77,10 @@ int rc_adc_read_raw(int ch)
 		return -1;
 	}
 	if(unlikely(ch<0 || ch>=CHANNELS)){
-		fprintf(stderr,"ERROR: in rc_adc_read_raw, adc channel mudt be between 0 & %d\n", CHANNELS-1);
+		fprintf(stderr,"ERROR: in rc_adc_read_raw, adc channel must be between 0 & %d\n", CHANNELS-1);
 		return -1;
 	}
-	if(unlikely(lseek(fd[0],0,SEEK_SET)<0)){
+	if(unlikely(lseek(fd[ch],0,SEEK_SET)<0)){
 		perror("ERROR: in rc_adc_read_raw, failed to seek to beginning of FD");
 		return -1;
 	}

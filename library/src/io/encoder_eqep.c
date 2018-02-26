@@ -1,7 +1,6 @@
 /**
  * @file encoder_eqep.c
  *
- * Basic interface to the eqep driver on the BeagleBone Black and Blue
  *
  * @author     James Strawson
  * @date       1/29/2018
@@ -12,6 +11,7 @@
 #include <errno.h>
 #include <fcntl.h> // for open
 #include <unistd.h> // for close
+
 #include <rc/encoder_eqep.h>
 
 // preposessor macros

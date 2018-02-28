@@ -10,10 +10,11 @@
 #include <stdio.h>
 #include <rc/start_stop.h>
 
+#define TIMEOUT 1.5 // seconds
 
 int main()
 {
-	int ret = rc_kill_existing_process();
+	int ret = rc_kill_existing_process(TIMEOUT);
 	switch(ret){
 	case -2:
 		printf("WARNING: invalid contents in PID_FILE, deleted file anyway\n");

@@ -81,20 +81,20 @@ install:
 	@# library .so
 	$(INSTALLDIR) $(DESTDIR)$(prefix)/lib
 	$(INSTALL) $(TARGET) $(DESTDIR)$(prefix)/lib
-	@echo "Install Complete"
+	@echo "Library Install Complete"
 
 
 clean:
 	@$(RM) $(LIBDIR)
 	@$(RM) $(BUILDDIR)
-	@echo "Clean Complete"
+	@echo "Library Clean Complete"
 
 uninstall:
 	$(RM) $(DESTDIR)$(prefix)/$(TARGET)
 	$(RM) $(DESTDIR)$(prefix)/include/roboticscape.h
 	$(RM) $(DESTDIR)$(prefix)/include/rc_usefulincludes.h
 	$(RM) $(DESTDIR)$(prefix)/include/rc
-	@echo "Uninstall Complete"
+	@echo "Library Uninstall Complete"
 
 
 

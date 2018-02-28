@@ -109,14 +109,17 @@ int rc_make_pid_file();
  *             command line to close whatever program is running in the
  *             background.
  *
+ * @param[in]  timeout_s  timeout period to wait for process to close cleanly,
+ *                        must be >=0.1
+ *
  * @return     return values:
  *             * -2: unreadable or invalid contents in RC_PID_FILE
  *             * -1: existing process failed to close cleanly and had to be
- *             killed
+ *               killed
  *             * 0: No existing prcess was running
  *             * 1: An existing process was running but it shut down cleanly.
  */
-int rc_kill_existing_process();
+int rc_kill_existing_process(float timeout_s);
 
 /**
  * @brief      Removes the PID file created by rc_make_pid_file().

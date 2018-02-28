@@ -81,12 +81,19 @@ int rc_make_pid_file()
 }
 
 
-int rc_kill_existing_process()
+int rc_kill_existing_process(float timeout_s)
 {
 	FILE* fd;
-	int old_pid, i;
+	int old_pid, i, ret, num_checks;
+
+	// sanity checks
+	if(timeout_s<0.1f){
+		fprintf(stderr, "ERROR in rc_kill_existing_process, timeout_s must be >= 0.1f\n");
+		return -2;
+	}
+
 	// start by checking if a pid file exists
-	if(access(RC_PID_FILE, F_OK ) != 0){
+	if(access(RC_PID_FILE, F_OK)){
 		// PID file missing, nothing is running
 		return 0;
 	}
@@ -97,7 +104,10 @@ int rc_kill_existing_process()
 		return -2;
 	}
 	// try to read the current process ID
-	fscanf(fd,"%d", &old_pid);
+	ret=fscanf(fd,"%d", &old_pid);
+	if(ret!=1){
+		fprintf(stderr,"WARNING in rc_kill_existing_process, read invalid contents in PID file\n");
+	}
 	fclose(fd);
 
 	// if the file didn't contain a PID number, remove it and
@@ -121,16 +131,28 @@ int rc_kill_existing_process()
 	kill((pid_t)old_pid, SIGINT);
 
 	// check every 0.1 seconds to see if it closed
-	for(i=0; i<30; i++){
-		if(getpgid(old_pid) >= 0) rc_usleep(100000);
-		else{ // succcess, it shut down properly
+	num_checks=timeout_s/0.1f;
+	for(i=0; i<=num_checks; i++){
+		// check if PID has stopped
+		if(getpgid(old_pid)==-1){
+			// succcess, it shut down properly
 			remove(RC_PID_FILE);
 			return 1;
 		}
+		else rc_usleep(100000);
 	}
+
 	// otherwise force kill the program if the PID file never got cleaned up
 	kill((pid_t)old_pid, SIGKILL);
-	rc_usleep(500000);
+	for(i=0; i<=num_checks; i++){
+		// check if PID has stopped
+		if(getpgid(old_pid)==-1){
+			// succcess, it shut down properly
+			remove(RC_PID_FILE);
+			return 1;
+		}
+		else rc_usleep(100000);
+	}
 
 	// delete the old PID file if it was left over
 	remove(RC_PID_FILE);
@@ -147,13 +169,6 @@ int rc_remove_pid_file()
 }
 
 
-
-
-/*******************************************************************************
-* @ int rc_enable_signal_handler
-*
-*
-*******************************************************************************/
 int rc_enable_signal_handler()
 {
 	// make the sigaction struct for shutdown signals
@@ -186,14 +201,7 @@ int rc_enable_signal_handler()
 	return 0;
 }
 
-/*******************************************************************************
-* int rc_disable_signal_handler(
-*
-* Disables the built-in signal handler. Use only if you want to implement your
-* own signal handler. Make sure your handler sets rc_state to EXITING or calls
-* cleanup_cape on shutdown to ensure roboticscape library threads close
-* cleanly.
-*******************************************************************************/
+
 int rc_disable_signal_handler()
 {
 	// reset all to defaults
@@ -220,11 +228,6 @@ int rc_disable_signal_handler()
 }
 
 
-/*******************************************************************************
-* static void segfault_handler(int signum, siginfo_t *info, void *context)
-*
-* custom segfault catcher to show useful info
-*******************************************************************************/
 static void segfault_handler(__attribute__ ((unused)) int signum, siginfo_t *info, __attribute__ ((unused)) void *context)
 {
 	fprintf(stderr, "ERROR: Segmentation Fault\n");
@@ -246,12 +249,7 @@ static void segfault_handler(__attribute__ ((unused)) int signum, siginfo_t *inf
 	return;
 }
 
-/*******************************************************************************
-* static void shutdown_signal_handler(int signo)
-*
-* catch Ctrl-C signal and change system state to EXITING
-* all threads should watch for rc_get_state()==EXITING and shut down cleanly
-*******************************************************************************/
+
 static void shutdown_signal_handler(int signo)
 {
 	switch(signo){

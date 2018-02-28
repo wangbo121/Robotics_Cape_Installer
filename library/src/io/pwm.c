@@ -12,7 +12,6 @@
 #include <string.h>
 #include <rc/pwm.h>
 
-
 #define MIN_HZ 1
 #define MAX_HZ 1000000000
 #define MAXBUF 64
@@ -213,8 +212,10 @@ int rc_pwm_init(int ss, int frequency)
 
 int rc_pwm_cleanup(int ss)
 {
+	int len;
 	int enableA_fd;
 	int enableB_fd;
+	char buf[MAXBUF];
 
 	// sanity check
 	if(unlikely(ss<0 || ss>2)){
@@ -271,7 +272,7 @@ int rc_pwm_cleanup(int ss)
 
 int rc_pwm_set_duty(int ss, char ch, float duty)
 {
-	int ret;
+	int len, ret, duty_ns;
 	char buf[MAXBUF];
 
 	// sanity checks
@@ -289,7 +290,8 @@ int rc_pwm_set_duty(int ss, char ch, float duty)
 	}
 
 	// set the duty
-	ret = snprintf(buf, sizeof(buf), "%d", duty*period_ns[ss]);
+	duty_ns = duty*period_ns[ss];
+	len = snprintf(buf, sizeof(buf), "%d", duty_ns);
 	switch(ch){
 	case 'A':
 		ret=write(dutyA_fd[ss], buf, len);
@@ -311,9 +313,9 @@ int rc_pwm_set_duty(int ss, char ch, float duty)
 }
 
 
-int rc_pwm_set_duty_ns(int ss, char ch, int duty_ns)
+int rc_pwm_set_duty_ns(int ss, char ch, unsigned int duty_ns)
 {
-	int ret;
+	int len, ret;
 	char buf[MAXBUF];
 
 	// sanity checks
@@ -325,13 +327,13 @@ int rc_pwm_set_duty_ns(int ss, char ch, int duty_ns)
 		fprintf(stderr, "ERROR in rc_pwm_set_duty_ns, subsystem %d not initialized yet\n", ss);
 		return -1;
 	}
-	if(unlikely(duty_ns>period_ns[ss] || duty_ns<0)){
+	if(unlikely(duty_ns>period_ns[ss])){
 		fprintf(stderr,"ERROR in rc_pwm_set_duty_ns, duty must be between 0 & %d for current frequency\n", period_ns[ss]);
 		return -1;
 	}
 
 	// set the duty
-	ret = snprintf(buf, sizeof(buf), "%d", duty_ns);
+	len = snprintf(buf, sizeof(buf), "%d", duty_ns);
 	switch(ch){
 	case 'A':
 		ret=write(dutyA_fd[ss], buf, len);

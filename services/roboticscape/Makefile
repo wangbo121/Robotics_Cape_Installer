@@ -8,16 +8,16 @@ BINDIR		:= bin
 INCLUDEDIR	:= ../../library/include
 LIBDIR		:= ../../library/lib
 
-# basic definitions for rules
+# file definitions for rules
 TARGET		:= $(BINDIR)/rc_startup_routine
 INCLUDES	:= $(shell find $(INCLUDEDIR) -name '*.h')
 SOURCES		:= $(SRCDIR)/rc_startup_routine.c
 
-# compiler and linker programs
+# compiler and linker binaries
 CC		:= gcc
 LINKER		:= gcc
 
-# compile flags
+# compiler and linker flags
 WFLAGS		:= -Wall -Wextra
 CFLAGS		:= -pthread -I $(INCLUDEDIR)
 LFLAGS		:= -lm -lrt -pthread -L $(LIBDIR) -lroboticscape
@@ -30,8 +30,8 @@ LINK		:= ln -s -f
 LINKDIR		:= /etc/roboticscape
 LINKNAME	:= link_to_startup_program
 
-# prefix variable in case this is used to make a deb package
-prefix		:= /usr/local
+# prefix variable for making debian package
+prefix		?= /usr/local
 
 
 all: $(TARGET)
@@ -58,5 +58,5 @@ uninstall:
 
 $(BINDIR)/% : $(SRCDIR)/%.c
 	@mkdir -p $(BINDIR)
-	@$(CC) -o $@ $< $(CFLAGS) $(WFLAGS)  $(DEBUGFLAG)  $(LFLAGS)
+	@$(CC) -o $@ $< $(CFLAGS) $(WFLAGS) $(DEBUGFLAG) $(LFLAGS)
 	@echo "made: $@"

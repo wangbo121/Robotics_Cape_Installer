@@ -1,7 +1,6 @@
-#
 # makefile for libroboticscape.so
-#
 
+# directories
 SRCDIR		:= src
 LIBDIR		:= lib
 BUILDDIR	:= build
@@ -9,31 +8,33 @@ INCLUDEDIR	:= include
 SONAME		:= libroboticscape.so
 TARGET		:= $(LIBDIR)/$(SONAME)
 
+# file definitions for rules
 SOURCES		:= $(shell find $(SRCDIR) -type f -name *.c)
 OBJECTS		:= $(SOURCES:$(SRCDIR)/%.c=$(BUILDDIR)/%.o)
-INCLUDES	:= $(shell find include -name '*.h')
+INCLUDES	:= $(shell find $(INCLUDEDIR) -name '*.h')
 
+# compiler and linker binaries
 CC		:= gcc
 LINKER		:= gcc
 
-
-# enable O3 optimization and vectorized math only for math libs
-MATH_OPT_FLAGS	:= -O3 -ffast-math -ftree-vectorize
-
 # general compiler flags
-CFLAGS		:= -fPIC -Wall -Wextra -I $(INCLUDEDIR)
-#ARCFLAGS	:= -mfpu=neon -march=armv7-a -mtune=cortex-a8
+WFLAGS		:= -Wall -Wextra
+CFLAGS		:= -fPIC -I $(INCLUDEDIR)
 OPT_FLAGS	:= -O1
+LFLAGS		:= -lm -lrt -pthread -shared -Wl,-soname,$(SONAME)
+
+# different compile flags for math libs
+MATH_OPT_FLAGS	:= -O3 -ffast-math -ftree-vectorize
+#ARCFLAGS	:= -mfpu=neon -march=armv7-a -mtune=cortex-a8
 #FLOAT_FLAG	:= -mfloat-abi=hard
 
-# linking flags
-LFLAGS		:= -lm -lrt -lpthread -shared -Wl,-soname,$(SONAME)
-
-# set prefix if not already set
-prefix		?= /usr/local
-RM		:= rm -f -r
+# commands
+RM		:= rm -rf
 INSTALL		:= install -m 755
 INSTALLDIR	:= install -d -m 755
+
+# prefix variable for making debian package
+prefix		?= /usr/local
 
 
 
@@ -41,7 +42,7 @@ INSTALLDIR	:= install -d -m 755
 $(TARGET): $(OBJECTS)
 	@mkdir -p $(LIBDIR)
 	@$(LINKER) -o $(TARGET) $(OBJECTS) $(LFLAGS)
-	@echo "Done linking $(TARGET)"
+	@echo "Done making $(TARGET)"
 
 # rule for math libs
 $(BUILDDIR)/math/%.o : $(SRCDIR)/math/%.c $(INCLUDES)
@@ -75,24 +76,22 @@ debug:
 # make and install everything
 install:
 	$(MAKE)
-	@# includes
 	$(INSTALLDIR) $(DESTDIR)$(prefix)/include
 	@cp -r include/* $(DESTDIR)$(prefix)/include
-	@# library .so
 	$(INSTALLDIR) $(DESTDIR)$(prefix)/lib
 	$(INSTALL) $(TARGET) $(DESTDIR)$(prefix)/lib
 	@echo "Library Install Complete"
 
-
+# cleanup local binaries
 clean:
 	@$(RM) $(LIBDIR)
 	@$(RM) $(BUILDDIR)
 	@echo "Library Clean Complete"
 
+# uninstall completely from system
 uninstall:
 	$(RM) $(DESTDIR)$(prefix)/$(TARGET)
 	$(RM) $(DESTDIR)$(prefix)/include/roboticscape.h
-	$(RM) $(DESTDIR)$(prefix)/include/rc_usefulincludes.h
 	$(RM) $(DESTDIR)$(prefix)/include/rc
 	@echo "Library Uninstall Complete"
 

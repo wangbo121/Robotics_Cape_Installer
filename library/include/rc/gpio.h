@@ -4,7 +4,8 @@
  * @brief      userspace C interface for the Linux GPIO driver
  *
  *             Developed and tested on the BeagleBone Black but should work fine
- *             on any Linux system.
+ *             on any Linux system with the new character-device gpio driver in
+ *             kernel 4.8 and newer
  *
  * @author     James Strawson
  *
@@ -24,78 +25,59 @@
 extern "C" {
 #endif
 
-#define GPIO_HIGH 1
-#define GPIO_LOW 0
+#include <stdint.h>
+
+#ifndef _GPIO_H_
+#define GPIOHANDLE_REQUEST_INPUT	(1UL << 0)
+#define GPIOHANDLE_REQUEST_OUTPUT	(1UL << 1)
+#define GPIOHANDLE_REQUEST_ACTIVE_LOW	(1UL << 2)
+#define GPIOHANDLE_REQUEST_OPEN_DRAIN	(1UL << 3)
+#define GPIOHANDLE_REQUEST_OPEN_SOURCE	(1UL << 4)
+#endif
 
 
 /**
- * @brief      Maximum number of pins supported. This is 128 for BeagleBone, but
- *             may be increased for other platforms if needed.
- */
-#define MAX_GPIO_PINS 128
-
-
-/**
- * @brief      Pin direction enum for configuring GPIO pins as input or output.
- */
-typedef enum rc_pin_direction_t{
-	GPIO_INPUT_PIN,
-	GPIO_OUTPUT_PIN
-}rc_pin_direction_t;
-
-/**
- * @brief      Enum for setting GPIO edge detection.
- */
-typedef enum rc_pin_edge_t{
-	GPIO_EDGE_NONE,
-	GPIO_EDGE_RISING,
-	GPIO_EDGE_FALLING,
-	GPIO_EDGE_BOTH
-}rc_pin_edge_t;
-
-
-/**
- * @brief      Exports (initializes) a gpio pin with the system driver.
+ * @brief      Configures a gpio pin as input or output
  *
- * @param[in]  pin   The pin ID
+ *             This configures the pin by making a gpio handle request to the
+ *             character device driver. It accepts the same gpio handle request
+ *             flags as defined in <linux/gpio.h>
+ *
+ *             - GPIOHANDLE_REQUEST_INPUT
+ *             - GPIOHANDLE_REQUEST_OUTPUT
+ *             - GPIOHANDLE_REQUEST_ACTIVE_LOW
+ *             - GPIOHANDLE_REQUEST_OPEN_DRAIN
+ *             - GPIOHANDLE_REQUEST_OPEN_SOURCE
+ *
+ *             Obviously the INPUT and OUTPUT flags cannot be used at the same
+ *             time. If you don't know what the other flags mean just stick with
+ *             INPUT and OUTPUT modes, that covers 99% of use cases.
+ *
+ * @param[in]  pin           The pin ID
+ * @param[in]  handle_flags  The handle flags
  *
  * @return     0 on success or -1 on failure.
  */
-int rc_gpio_export(int pin);
+int rc_gpio_init(int pin, int handle_flags);
 
-/**
- * @brief      Unexports (uninitializes) a gpio pin with the system driver. Not
- *             normally needed.
- *
- * @param[in]  pin   The pin ID
- *
- * @return     0 on success or -1 on failure.
- */
-int rc_gpio_unexport(int pin);
-
-/**
- * @brief      Sets the direction of a pin as input or output, see enum
- *             rc_pin_direction_t.
- *
- * @param[in]  pin   The pin ID
- * @param[in]  dir   Direction
- *
- * @return     0 on success or -1 on failure
- */
-int rc_gpio_set_dir(int pin, rc_pin_direction_t dir);
 
 /**
  * @brief      Sets the value of a GPIO pin when in output mode
  *
+ *             must call rc_gpio_init with the OUTPUT flag first.
+ *
  * @param[in]  pin    The pin ID
- * @param[in]  value  The value
+ * @param[in]  value  0 for off (inactive), nonzero for on (active)
  *
  * @return     0 on success or -1 on failure
  */
 int rc_gpio_set_value(int pin, int value);
 
+
 /**
- * @brief      Reads the value of a PGIO pin when in input mode or output mode.
+ * @brief      Reads the value of a GPIO pin when in input mode or output mode.
+ *
+ *             Must call rc_gpio_init first.
  *
  * @param[in]  pin   The pin ID
  *
@@ -103,45 +85,71 @@ int rc_gpio_set_value(int pin, int value);
  */
 int rc_gpio_get_value(int pin);
 
-/**
- * @brief      Enbales edge detection (triggering) for the pin
- *
- * @param[in]  pin   The pin ID
- * @param[in]  edge  The edge_dir, see rc_pin_edge_t
- *
- * @return     0 on success, -1 on failure
- */
-int rc_gpio_set_edge(int pin, rc_pin_edge_t edge_dir);
+
+/** possible edge request **/
+#ifndef _GPIO_H_
+#define GPIOEVENT_REQUEST_RISING_EDGE	(1UL << 0)
+#define GPIOEVENT_REQUEST_FALLING_EDGE	(1UL << 1)
+#define GPIOEVENT_REQUEST_BOTH_EDGES	((1UL << 0) | (1UL << 1))
+#endif
 
 /**
- * @brief      Fetches a file descriptor to the gpio value.
+ * @brief      Initializes a pin for interrupt event polling
  *
- *             This is mainly used when the user wants to poll the gpio value
- *             after setting up edge detection with rc_gpio_set_edge.
+ *             Handle flags exists if the user wishes to configure the pic as
+ *             active-low, open-source, or open-drain. This is usually not
+ *             necessrary and can be left at 0. Since this also
  *
- * @param[in]  pin   The pin ID
- *
- * @return     Returns a file descriptor to the gpio value, or -1 on error
- */
-int rc_gpio_get_value_fd(int pin);
-
-/**
- * @brief      prints the current value of a pin, "0" or "1"
- *
- * @param[in]  pin   The pin ID
+ * @param[in]  pin           The pin ID
+ * @param[in]  handle_flags  Additional pin configuration flags, this can
+ *                           usually be left as 0
+ * @param[in]  event_flags   The event flags, GPIOEVENT_REQUEST_RISING_EDGE,
+ *                           GPIOEVENT_REQUEST_FALLING_EDGE, or
+ *                           GPIOEVENT_REQUEST_BOTH_EDGES
  *
  * @return     0 on success or -1 on failure
  */
-int rc_gpio_print_value(int pin);
+int rc_gpio_init_event(int pin, int handle_flags, int event_flags);
+
+/** possible return values for rc_gpio_poll **/
+#define RC_GPIO_EVENT_ERROR		-1
+#define RC_GPIO_EVENT_TIMEOUT		0
+#define RC_GPIO_EVENT_RISING_EDGE	1
+#define RC_GPIO_EVENT_FALLING_EDGE	2
 
 /**
- * @brief      prints the direction of a pin as it's currently set "in" or "out"
+ * @brief      polls a pin when configured for interrupt event polling
+ *
+ *             This polls for an event and then reads one event from the queue.
+ *
+ * @param[in]  pin            The pin ID
+ * @param[in]  timeout_ms     The timeout in milliseconds. Negative value causes
+ *                            infinite timeout, a value of 0 makes the function
+ *                            return immediately after reading an event in the
+ *                            queue.
+ * @param[out] event_time_ns  pointer where the time of the gpio event occured.
+ *                            Units are nanoseconds since epoch. Set this as
+ *                            NULL if you don't want to keep the time.
+ *
+ * @return     returns RC_GPIO_EVENT_ERROR, RC_GPIO_EVENT_TIMEOUT,
+ *             RC_GPIO_EVENT_RISING_EDGE, or RC_GPIO_EVENT_FALLING_EDGE to
+ *             indicate what happened.
+ */
+int rc_gpio_poll(int pin, int timeout_ms, uint64_t* event_time_ns);
+
+
+/**
+ * @brief      closes the file descriptor for a pin
+ *
+ *             Not strictly necessary to run at the end of your program since
+ *             linux will clean this up for you. However this is sometimes
+ *             useful in the middle of a program when a pin is no longer needed.
  *
  * @param[in]  pin   The pin ID
- *
- * @return     0 on success or -1 on failure
  */
-int rc_gpio_print_dir(int pin);
+void rc_gpio_cleanup(int pin);
+
+
 
 
 #ifdef  __cplusplus

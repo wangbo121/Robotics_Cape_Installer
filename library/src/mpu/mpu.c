@@ -746,7 +746,7 @@ int rc_mpu_power_off()
 
 	// if in dmp mode, also unexport the interrupt pin
 	if(dmp_en){
-		rc_gpio_unexport(config.gpio_interrupt_pin);
+		rc_gpio_cleanup(config.gpio_interrupt_pin);
 	}
 
 	return 0;
@@ -809,19 +809,12 @@ int rc_mpu_initialize_dmp(rc_mpu_data_t *data, rc_mpu_config_t conf)
 		return -1;
 	}
 	// configure the gpio interrupt pin
-	if(rc_gpio_export(config.gpio_interrupt_pin)){
-		fprintf(stderr,"ERROR: in rc_mpu_initialize_dmp, failed to export GPIO %d\n", config.gpio_interrupt_pin);
+	if(rc_gpio_init_event(config.gpio_interrupt_pin, 0, GPIOEVENT_REQUEST_FALLING_EDGE)){
+		fprintf(stderr,"ERROR: in rc_mpu_initialize_dmp, failed to initialize GPIO %d\n", config.gpio_interrupt_pin);
 		fprintf(stderr,"probably insufficient privileges\n");
 		return -1;
 	}
-	if(rc_gpio_set_dir(config.gpio_interrupt_pin, GPIO_INPUT_PIN)){
-		fprintf(stderr,"ERROR: in rc_mpu_initialize_dmp, failed to configure GPIO %d direction\n", config.gpio_interrupt_pin);
-		return -1;
-	}
-	if(rc_gpio_set_edge(config.gpio_interrupt_pin, GPIO_EDGE_FALLING)){
-		fprintf(stderr,"ERROR: in rc_mpu_initialize_dmp, failed to configure GPIO %d edge\n", config.gpio_interrupt_pin);
-		return -1;
-	}
+
 	// claiming the bus does no guarantee other code will not interfere
 	// with this process, but best to claim it so other code can check
 	rc_i2c_lock_bus(config.i2c_bus);
@@ -1770,105 +1763,101 @@ void* __dmp_interrupt_handler( __unused void* ptr)
 	int mag_div_step = config.mag_sample_rate_div;
 	char buf[64];
 	int first_run = 1;
-	int imu_gpio_fd = rc_gpio_get_value_fd(config.gpio_interrupt_pin);
-	if(imu_gpio_fd == -1){
-		fprintf(stderr,"ERROR: can't open config.gpio_interrupt_pin gpio fd\n");
-		fprintf(stderr,"aborting imu_interrupt_handler\n");
-		return NULL;
-	}
-	fdset[0].fd = imu_gpio_fd;
-	fdset[0].events = POLLPRI;
-	// keep running until the program closes
 	__mpu_reset_fifo();
-	while(imu_shutdown_flag!=1) {
+
+	while(!imu_shutdown_flag){
 		// system hangs here until IMU FIFO interrupt
-		poll(fdset, 1, IMU_POLL_TIMEOUT);
-		if(imu_shutdown_flag==1){
-			break;
+		ret = rc_gpio_poll(	config.gpio_interrupt_pin,
+					IMU_POLL_TIMEOUT,
+					&last_interrupt_timestamp_nanos);
+		// check for bad things that may have happened
+		if(imu_shutdown_flag) break;
+		if(ret == RC_GPIO_EVENT_ERROR){
+			fprintf(stderr, "ERROR in IMU interrupt handler calling poll\n");
+			continue;
 		}
-		else if (fdset[0].revents & POLLPRI) {
-			lseek(fdset[0].fd, 0, SEEK_SET);
-			if(read(fdset[0].fd, buf, 64)==-1){
-				perror("ERROR in __dmp_interrupt_handler, failed to read gpio value FD");
-				continue;
+		if(ret == RC_GPIO_EVENT_TIMEOUT){
+			if(config.show_warnings){
+				fprintf(stderr, "WARNING, gpio poll timeout\n");
 			}
-			// interrupt received, mark the timestamp
-			last_interrupt_timestamp_nanos = rc_nanos_since_epoch();
-			// try to load fifo no matter the claim bus state
-			if(rc_i2c_get_lock(config.i2c_bus)){
-				fprintf(stderr,"WARNING: Something has claimed the I2C bus when an\n");
-				fprintf(stderr,"IMU interrupt was received. Reading IMU anyway.\n");
-			}
-			// aquires bus
-			rc_i2c_lock_bus(config.i2c_bus);
-			// aquires mutex
-			pthread_mutex_lock( &read_mutex );
-			pthread_mutex_lock( &tap_mutex );
-			// read data
-			ret = __read_dmp_fifo(data_ptr);
-			rc_i2c_unlock_bus(config.i2c_bus);
-			// record if it was successful or not
-			if(ret==0){
-				last_read_successful=1;
-				if(data_ptr->tap_detected){
-					last_tap_timestamp_nanos = last_interrupt_timestamp_nanos;
-				}
-			}
-			else{
-				last_read_successful=0;
-			}
-			// if reading mag before callback, check divider and do it now
-			if(config.enable_magnetometer && !config.read_mag_after_callback){
-				if(mag_div_step>=config.mag_sample_rate_div){
-					#ifdef DEBUG
-					printf("reading mag before callback\n");
-					#endif
-					rc_mpu_read_mag(data_ptr);
-					// reset address back for next read
-					rc_i2c_set_device_address(config.i2c_bus,config.i2c_addr);
-					mag_div_step=1;
-				}
-				else mag_div_step++;
-			}
-			// releases bus
-			rc_i2c_unlock_bus(config.i2c_bus);
-			// call the user function if not the first run
-			if(first_run == 1){
-				first_run = 0;
-			}
-			else if(last_read_successful){
-				if(dmp_callback_func!=NULL) dmp_callback_func();
-				// signals that a measurement is available to blocking function
-				pthread_cond_broadcast(&read_condition);
-				// additionally call tap callback if one was received
-				if(data_ptr->tap_detected){
-					if(tap_callback_func!=NULL) tap_callback_func(data_ptr->last_tap_direction, data_ptr->last_tap_count);
-					pthread_cond_broadcast(&tap_condition);
-				}
-			}
+			continue;
+		}
 
-			// releases mutex
-			pthread_mutex_unlock(&read_mutex);
-			pthread_mutex_unlock(&tap_mutex);
-
-			// if reading mag after interrupt, check divider and do it now
-			if(config.enable_magnetometer && config.read_mag_after_callback){
-				if(mag_div_step>=config.mag_sample_rate_div){
-					#ifdef DEBUG
-					printf("reading mag after ISR\n");
-					#endif
-					rc_i2c_lock_bus(config.i2c_bus);
-					rc_mpu_read_mag(data_ptr);
-					rc_i2c_unlock_bus(config.i2c_bus);
-					// reset address back for next read
-					rc_i2c_set_device_address(config.i2c_bus,config.i2c_addr);
-					mag_div_step=1;
-				}
-				else mag_div_step++;
+		// try to load fifo no matter the claim bus state
+		if(rc_i2c_get_lock(config.i2c_bus)){
+			fprintf(stderr,"WARNING: Something has claimed the I2C bus when an\n");
+			fprintf(stderr,"IMU interrupt was received. Reading IMU anyway.\n");
+		}
+		// aquires bus
+		rc_i2c_lock_bus(config.i2c_bus);
+		// aquires mutex
+		pthread_mutex_lock( &read_mutex );
+		pthread_mutex_lock( &tap_mutex );
+		// read data
+		ret = __read_dmp_fifo(data_ptr);
+		rc_i2c_unlock_bus(config.i2c_bus);
+		// record if it was successful or not
+		if(ret==0){
+			last_read_successful=1;
+			if(data_ptr->tap_detected){
+				last_tap_timestamp_nanos = last_interrupt_timestamp_nanos;
 			}
+		}
+		else{
+			last_read_successful=0;
+		}
+		// if reading mag before callback, check divider and do it now
+		if(config.enable_magnetometer && !config.read_mag_after_callback){
+			if(mag_div_step>=config.mag_sample_rate_div){
+				#ifdef DEBUG
+				printf("reading mag before callback\n");
+				#endif
+				rc_mpu_read_mag(data_ptr);
+				// reset address back for next read
+				rc_i2c_set_device_address(config.i2c_bus,config.i2c_addr);
+				mag_div_step=1;
+			}
+			else mag_div_step++;
+		}
+		// releases bus
+		rc_i2c_unlock_bus(config.i2c_bus);
+		// call the user function if not the first run
+		if(first_run == 1){
+			first_run = 0;
+		}
+		else if(last_read_successful){
+			if(dmp_callback_func!=NULL) dmp_callback_func();
+			// signals that a measurement is available to blocking function
+			pthread_cond_broadcast(&read_condition);
+			// additionally call tap callback if one was received
+			if(data_ptr->tap_detected){
+				if(tap_callback_func!=NULL) tap_callback_func(data_ptr->last_tap_direction, data_ptr->last_tap_count);
+				pthread_cond_broadcast(&tap_condition);
+			}
+		}
+
+		// releases mutex
+		pthread_mutex_unlock(&read_mutex);
+		pthread_mutex_unlock(&tap_mutex);
+
+		// if reading mag after interrupt, check divider and do it now
+		if(config.enable_magnetometer && config.read_mag_after_callback){
+			if(mag_div_step>=config.mag_sample_rate_div){
+				#ifdef DEBUG
+				printf("reading mag after ISR\n");
+				#endif
+				rc_i2c_lock_bus(config.i2c_bus);
+				rc_mpu_read_mag(data_ptr);
+				rc_i2c_unlock_bus(config.i2c_bus);
+				// reset address back for next read
+				rc_i2c_set_device_address(config.i2c_bus,config.i2c_addr);
+				mag_div_step=1;
+			}
+			else mag_div_step++;
 		}
 	}
 
+	// shutting down now, do some cleanup
 	// aquires mutex
 	pthread_mutex_lock( &read_mutex );
 	// /releases other threads

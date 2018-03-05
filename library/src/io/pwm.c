@@ -143,19 +143,29 @@ int rc_pwm_init(int ss, int frequency)
 		return -1;
 	}
 
-
-	// disable both channels before setting period to avoid potential
-	// quirky behavior
-	if(unlikely(write(enableA_fd, "0", 2)==-1)){
-		perror("ERROR in rc_pwm_init, failed to write to channel A enable fd");
+	// set the period in nanoseconds
+	period_ns[ss] = 1000000000/frequency;
+	len = snprintf(buf, sizeof(buf), "%d", period_ns[ss]);
+	if(unlikely(write(periodA_fd, buf, len)==-1)){
+		perror("ERROR in rc_pwm_init, failed to write to channel A period fd");
 		return -1;
 	}
-	if(unlikely(write(enableB_fd, "0", 2)==-1)){
-		perror("ERROR in rc_pwm_init, failed to write to channel A enable fd");
+	if(unlikely(write(periodB_fd, buf, len)==-1)){
+		perror("ERROR in rc_pwm_init, failed to write to channel B period fd");
 		return -1;
 	}
 
-	// now make sure duty is 0
+	// set polarity to 0 (normal)
+	if(unlikely(write(polarityA_fd, "normal", 7)==-1)){
+		perror("ERROR in rc_pwm_init, failed to write to channel A polarity fd");
+		return -1;
+	}
+	if(unlikely(write(polarityB_fd, "normal", 7)==-1)){
+		perror("ERROR in rc_pwm_init, failed to write to channel B polarity fd");
+		return -1;
+	}
+
+	// make sure duty is 0
 	if(unlikely(write(dutyA_fd[ss], "0", 2)==-1)){
 		perror("ERROR in rc_pwm_init, failed to write to channel A duty fd");
 		return -1;
@@ -165,34 +175,12 @@ int rc_pwm_init(int ss, int frequency)
 		return -1;
 	}
 
-	// set polarity to 0 (normal)
-	if(unlikely(write(polarityA_fd, "0", 2)==-1)){
-		perror("ERROR in rc_pwm_init, failed to write to channel A polarity fd");
-		return -1;
-	}
-	if(unlikely(write(polarityB_fd, "0", 2)==-1)){
-		perror("ERROR in rc_pwm_init, failed to write to channel B polarity fd");
-		return -1;
-	}
-
-	// set the period in nanoseconds
-	period_ns[ss] = 1000000000/frequency;
-	len = snprintf(buf, sizeof(buf), "%d", period_ns[ss]);
-	if(unlikely(write(periodA_fd, buf, len))){
-		perror("ERROR in rc_pwm_init, failed to write to channel A period fd");
-		return -1;
-	}
-	if(unlikely(write(periodB_fd, buf, len))){
-		perror("ERROR in rc_pwm_init, failed to write to channel B period fd");
-		return -1;
-	}
-
 	// now enable both channels
-	if(unlikely(write(enableA_fd, "1", 2))){
+	if(unlikely(write(enableA_fd, "1", 2)==-1)){
 		perror("ERROR in rc_pwm_init, failed to write to channel A enable fd");
 		return -1;
 	}
-	if(unlikely(write(enableB_fd, "1", 2))){
+	if(unlikely(write(enableB_fd, "1", 2)==-1)){
 		perror("ERROR in rc_pwm_init, failed to write to channel B enable fd");
 		return -1;
 	}

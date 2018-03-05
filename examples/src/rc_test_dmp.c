@@ -336,6 +336,8 @@ int main(int argc, char *argv[]){
 
 	// shut things down
 	rc_mpu_power_off();
+	printf("\n");
+	fflush(stdout);
 	return 0;
 }
 

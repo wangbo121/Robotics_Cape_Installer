@@ -1,11 +1,17 @@
 /**
  * @file motor.c
+ * @author James Strawson
+ * @date 2018
  */
+
 #include <stdio.h>
 #include <rc/motor.h>
 #include <rc/model.h>
 #include <rc/gpio.h>
 #include <rc/pwm.h>
+
+// preposessor macros
+#define unlikely(x)	__builtin_expect (!!(x), 0)
 
 // motor pin definitions
 #define MDIR1A			60	//gpio1.28	P9.12
@@ -20,59 +26,52 @@
 #define MDIR3A			73	//gpio2.9	P8.44
 #define MOT_STBY		20	//gpio0.20	P9.41
 
-#define MOTOR_CHANNELS		4
+#define CHANNELS		4
 #define PWM_FREQ		25000	// 25kHz
 
-static int mdir1a, mdir2b; // variable gpio pin assignments
+// polarity of the motor connections
+const static float polarity[]={1.0,-1.0,-1.0,1.0};
+
 static int init_flag = 0;
 static int stby_state = 0;
+static int dirA[CHANNELS];
+static int dirB[CHANNELS];
+static int pwmss[CHANNELS];
+static int pwmch[CHANNELS];
 
-
-static int set_pins(int motor, float duty, char a, char b)
-{
-	int ret;
-	// set gpio direction outputs & duty
-	switch(motor){
-		case 1:
-			ret|=rc_gpio_set_value(mdir1a, a);
-			ret|=rc_gpio_set_value(MDIR1B, b);
-			ret|=rc_pwm_set_duty(1, 'A', duty);
-			break;
-		case 2:
-			ret|=rc_gpio_set_value(MDIR2A, b);
-			ret|=rc_gpio_set_value(mdir2b, a);
-			ret|=rc_pwm_set_duty(1, 'B', duty);
-			break;
-		case 3:
-			ret|=rc_gpio_set_value(MDIR3A, b);
-			ret|=rc_gpio_set_value(MDIR3B, a);
-			ret|=rc_pwm_set_duty(2, 'A', duty);
-			break;
-		case 4:
-			ret|=rc_gpio_set_value(MDIR4A, a);
-			ret|=rc_gpio_set_value(MDIR4B, b);
-			ret|=rc_pwm_set_duty(2, 'B', duty);
-			break;
-		default:
-			fprintf(stderr,"ERROR in rc_motor, motor must be between 1 and 4\n");
-			return -1;
-	}
-	return ret;
-}
 
 
 
 int rc_motor_init()
 {
+	int i;
+
+	// set pins for motor 1
 	// assign gpio pins for blue/black
-	if(rc_model_get()==BB_BLUE){
-		mdir1a = MDIR1A_BLUE;
-		mdir2b = MDIR2B_BLUE;
-	}
-	else{
-		mdir1a = MDIR1A;
-		mdir2b = MDIR2B;
-	}
+	if(rc_model_get()==BB_BLUE) dirA[0]=MDIR1A_BLUE;
+	else dirA[0] = MDIR1A;
+	dirB[0]=MDIR1B;
+	pwmss[0]=1;
+	pwmch[0]='A';
+
+	// motor 2
+	dirA[1]=MDIR2A;
+	if(rc_model_get()==BB_BLUE) dirB[1]=MDIR2B_BLUE;
+	else dirB[1] = MDIR2B;
+	pwmss[1]=1;
+	pwmch[1]='B';
+
+	// motor 3
+	dirA[2]=MDIR3A;
+	dirB[2]=MDIR3B;
+	pwmss[2]=2;
+	pwmch[2]='A';
+
+	// motor 4
+	dirA[3]=MDIR4A;
+	dirB[3]=MDIR4B;
+	pwmss[3]=2;
+	pwmch[3]='B';
 
 	// set up pwm channels
 	if(unlikely(rc_pwm_init(1,PWM_FREQ))){
@@ -84,47 +83,28 @@ int rc_motor_init()
 		return -1;
 	}
 
-	// set up gpio
-	if(unlikely(rc_gpio_init(MOT_STBY, GPIO_HANDLE_REQUEST_OUTPUT))){
+	// set up gpio pins
+	if(unlikely(rc_gpio_init(MOT_STBY, GPIOHANDLE_REQUEST_OUTPUT))){
 		fprintf(stderr,"ERROR in rc_motor_init, failed to set up gpio %d\n", MOT_STBY);
 		return -1;
 	}
-	if(unlikely(rc_gpio_init(mdir1a, GPIO_HANDLE_REQUEST_OUTPUT))){
-		fprintf(stderr,"ERROR in rc_motor_init, failed to set up gpio %d\n", mdir1a);
-		return -1;
-	}
-	if(unlikely(rc_gpio_init(MDIR1B, GPIO_HANDLE_REQUEST_OUTPUT))){
-		fprintf(stderr,"ERROR in rc_motor_init, failed to set up gpio %d\n", MDIR1B);
-		return -1;
-	}
-	if(unlikely(rc_gpio_init(MDIR2A, GPIO_HANDLE_REQUEST_OUTPUT))){
-		fprintf(stderr,"ERROR in rc_motor_init, failed to set up gpio %d\n", MDIR2A);
-		return -1;
-	}
-	if(unlikely(rc_gpio_init(mdir2b, GPIO_HANDLE_REQUEST_OUTPUT))){
-		fprintf(stderr,"ERROR in rc_motor_init, failed to set up gpio %d\n", mdir2b);
-		return -1;
-	}
-	if(unlikely(rc_gpio_init(MDIR3A, GPIO_HANDLE_REQUEST_OUTPUT))){
-		fprintf(stderr,"ERROR in rc_motor_init, failed to set up gpio %d\n", MDIR3A);
-		return -1;
-	}
-	if(unlikely(rc_gpio_init(MDIR3B, GPIO_HANDLE_REQUEST_OUTPUT))){
-		fprintf(stderr,"ERROR in rc_motor_init, failed to set up gpio %d\n", MDIR3B);
-		return -1;
-	}
-	if(unlikely(rc_gpio_init(MDIR4A, GPIO_HANDLE_REQUEST_OUTPUT))){
-		fprintf(stderr,"ERROR in rc_motor_init, failed to set up gpio %d\n", MDIR4A);
-		return -1;
-	}
-	if(unlikely(rc_gpio_init(MDIR4B, GPIO_HANDLE_REQUEST_OUTPUT))){
-		fprintf(stderr,"ERROR in rc_motor_init, failed to set up gpio %d\n", MDIR4B);
-		return -1;
+	for(i=0;i<CHANNELS;i++){
+		if(unlikely(rc_gpio_init(dirA[i], GPIOHANDLE_REQUEST_OUTPUT))){
+			fprintf(stderr,"ERROR in rc_motor_init, failed to set up gpio %d\n", dirA[i]);
+			return -1;
+		}
+		if(unlikely(rc_gpio_init(dirB[i], GPIOHANDLE_REQUEST_OUTPUT))){
+			fprintf(stderr,"ERROR in rc_motor_init, failed to set up gpio %d\n", dirB[i]);
+			return -1;
+		}
 	}
 
 	// now set all the gpio pins and pwm to something predictable
-	if(unlikely(rc_set_motor_free_spin_all())){
+	stby_state = 0;
+	init_flag = 1;
+	if(unlikely(rc_motor_free_spin_all())){
 		fprintf(stderr,"ERROR in rc_motor_init\n");
+		init_flag = 0;
 		return -1;
 	}
 
@@ -142,23 +122,16 @@ int rc_motor_init()
 
 int rc_motor_cleanup()
 {
+	int i;
 	if(!init_flag) return 0;
-	if(rc_set_motor_free_spin_all()){
-		fprintf(stderr,"ERROR in rc_motor_cleanup\n");
-		init_flag;
-		return -1;
-	}
+	rc_motor_free_spin_all();
 	rc_pwm_cleanup(1);
 	rc_pwm_cleanup(2);
 	rc_gpio_cleanup(MOT_STBY);
-	rc_gpio_cleanup(mdir1a);
-	rc_gpio_cleanup(MDIR1B);
-	rc_gpio_cleanup(mdir2b);
-	rc_gpio_cleanup(MDIR2B);
-	rc_gpio_cleanup(MDIR3A);
-	rc_gpio_cleanup(MDIR3B);
-	rc_gpio_cleanup(MDIR4A);
-	rc_gpio_cleanup(MDIR4B);
+	for(i=0;i<CHANNELS;i++){
+		rc_gpio_cleanup(dirA[i]);
+		rc_gpio_cleanup(dirB[i]);
+	}
 	return 0;
 }
 
@@ -175,7 +148,7 @@ int rc_motor_standby(int standby_en)
 		// return if already in standby
 		if(stby_state) return 0;
 		val=0;
-		rc_set_motor_free_spin_all();
+		rc_motor_free_spin_all();
 	}
 	else{
 		if(!stby_state) return 0;
@@ -190,136 +163,131 @@ int rc_motor_standby(int standby_en)
 }
 
 
-int rc_set_motor(int motor, float duty){
+int rc_motor_set(int motor, float duty)
+{
 	int a,b;
-	int ret=0;
+
+	// sanity checks
+	if(unlikely(motor<1 || motor>CHANNELS)){
+		fprintf(stderr,"ERROR in rc_motor_set, motor argument must be between 1 & %d\n", CHANNELS);
+		return -1;
+	}
 	if(unlikely(init_flag==0)){
-		fprintf(stderr, "ERROR in rc_set_motor, call rc_motor_init first\n");
+		fprintf(stderr, "ERROR in rc_motor_set, call rc_motor_init first\n");
 		return -1;
 	}
 	if(unlikely(stby_state)){
-		fpirntf(stderr,"ERROR in rc_set_motor, motors are currently in standby mode\n");
+		fprintf(stderr,"ERROR in rc_motor_set, motors are currently in standby mode\n");
 		return -1;
 	}
-	//check that the duty cycle is within +-1
-	if (duty>1.0f)	duty = 1.0f;
-	else if(duty<-1.0f) duty=-1.0f;
 
-	//switch the direction pins to H-bridge
-	if (duty>=0){
-		a=1;
-		b=0;
+	// check that the duty cycle is within +-1
+	if	(duty > 1.0f)	duty = 1.0f;
+	else if	(duty <-1.0f)	duty =-1.0f;
+
+	// determine the direction pins to H-bridge
+	duty=duty*polarity[motor-1];
+	if(duty>=0){	a=1; b=0;}
+	else{		a=0; b=1; duty=-duty;}
+
+	// set gpio and pwm for that motor
+	if(unlikely(rc_gpio_set_value(dirA[motor-1], a))){
+		fprintf(stderr,"ERROR in rc_motor_set, failed to write to gpio pin %d\n",dirA[motor-1]);
+		return -1;
 	}
-	else{
-		a=0;
-		b=1;
-		duty=-duty;
+	if(unlikely(rc_gpio_set_value(dirB[motor-1], b))){
+		fprintf(stderr,"ERROR in rc_motor_set, failed to write to gpio pin %d\n",dirB[motor-1]);
+		return -1;
 	}
-
-
+	if(unlikely(rc_pwm_set_duty(pwmss[motor-1], pwmch[motor-1], duty))){
+		fprintf(stderr,"ERROR in rc_motor_set, failed to write to pwm %d%c\n",pwmss[motor-1], pwmch[motor-1]);
+		return -1;
+	}
 	return 0;
 }
 
 
 
-int rc_motor_set_all(float duty){
+int rc_motor_set_all(float duty)
+{
 	int i;
-	for(i=1;i<=MOTOR_CHANNELS; i++){
-		if(rc_set_motor(i, duty)) return -1;
+	for(i=1;i<=CHANNELS; i++){
+		if(rc_motor_set(i, duty)) return -1;
 	}
 	return 0;
 }
 
 
 
-int rc_motor_free_spin(int motor){
-	int ret=0;
+int rc_motor_free_spin(int motor)
+{
+	// sanity checks
+	if(unlikely(motor<1 || motor>CHANNELS)){
+		fprintf(stderr,"ERROR in rc_motor_free_spin, motor argument must be between 1 & %d\n", CHANNELS);
+		return -1;
+	}
 	if(unlikely(init_flag==0)){
 		fprintf(stderr, "ERROR in rc_motor_free_spin, call rc_motor_init first\n");
 		return -1;
 	}
 	if(unlikely(stby_state)){
-		fpirntf(stderr,"ERROR in rc_motor_free_spin, motors are currently in standby mode\n");
+		fprintf(stderr,"ERROR in rc_motor_free_spin, motors are currently in standby mode\n");
 		return -1;
 	}
-	// set gpio direction outputs & duty
-	switch(motor){
-		case 1:
-			ret|=rc_gpio_set_value(mdir1a, 0);
-			ret|=rc_gpio_set_value(MDIR1B, 0);
-			ret|=rc_pwm_set_duty(1, 'A', 0.0);
-			break;
-		case 2:
-			ret|=rc_gpio_set_value(MDIR2A, 0);
-			ret|=rc_gpio_set_value(mdir2b, 0);
-			ret|=rc_pwm_set_duty(1, 'B', 0.0);
-			break;
-		case 3:
-			ret|=rc_gpio_set_value(MDIR3A, 0);
-			ret|=rc_gpio_set_value(MDIR3B, 0);
-			ret|=rc_pwm_set_duty(2, 'A', 0.0);
-			break;
-		case 4:
-			ret|=rc_gpio_set_value(MDIR4A, 0);
-			ret|=rc_gpio_set_value(MDIR4B, 0);
-			ret|=rc_pwm_set_duty(2, 'B', 0.0);
-			break;
-		default:
-			fprintf(stderr,"ERROR in rc_motor_free_spin, motor must be between 1 and 4\n");
-			return -1;
+	// set gpio and pwm for that motor
+	if(unlikely(rc_gpio_set_value(dirA[motor-1], 0))){
+		fprintf(stderr,"ERROR in rc_motor_free_spin, failed to write to gpio pin %d\n",dirA[motor-1]);
+		return -1;
 	}
-	if(ret){
-		fprintf(stderr,"ERROR in rc_motor_free_spin\n");
+	if(unlikely(rc_gpio_set_value(dirB[motor-1], 0))){
+		fprintf(stderr,"ERROR in rc_motor_free_spin, failed to write to gpio pin %d\n",dirB[motor-1]);
+		return -1;
+	}
+	if(unlikely(rc_pwm_set_duty(pwmss[motor-1], pwmch[motor-1], 0.0))){
+		fprintf(stderr,"ERROR in rc_motor_free_spin, failed to write to pwm %d%c\n",pwmss[motor-1], pwmch[motor-1]);
 		return -1;
 	}
 	return 0;
 }
 
 
-int rc_set_motor_free_spin_all(){
+int rc_motor_free_spin_all()
+{
 	int i;
-	for(i=1;i<=MOTOR_CHANNELS; i++){
+	for(i=1;i<=CHANNELS; i++){
 		if(rc_motor_free_spin(i)) return -1;
 	}
 	return 0;
 }
 
 
-int rc_motor_brake(int motor){
-	int ret=0;
+int rc_motor_brake(int motor)
+{
+	// sanity checks
+	if(unlikely(motor<1 || motor>CHANNELS)){
+		fprintf(stderr,"ERROR in rc_motor_brake, motor argument must be between 1 & %d\n", CHANNELS);
+		return -1;
+	}
 	if(unlikely(init_flag==0)){
 		fprintf(stderr, "ERROR in rc_motor_brake, call rc_motor_init first\n");
 		return -1;
 	}
 	if(unlikely(stby_state)){
-		fpirntf(stderr,"ERROR in rc_motor_brake, motors are currently in standby mode\n");
+		fprintf(stderr,"ERROR in rc_motor_brake, motors are currently in standby mode\n");
 		return -1;
 	}
-	// set gpio direction outputs & duty
-	switch(motor){
-		case 1:
-			ret!=rc_gpio_set_value(mdir1a, 1);
-			rc_gpio_set_value(MDIR1B, 1);
-			rc_pwm_set_duty(1, 'A', 0.0);
-			break;
-		case 2:
-			rc_gpio_set_value(MDIR2A, 1);
-			rc_gpio_set_value(mdir2b, 1);
-			rc_pwm_set_duty(1, 'B', 0.0);
-			break;
-		case 3:
-			rc_gpio_set_value(MDIR3A, 1);
-			rc_gpio_set_value(MDIR3B, 1);
-			rc_pwm_set_duty(2, 'A', 0.0);
-			break;
-		case 4:
-			rc_gpio_set_value(MDIR4A, 1);
-			rc_gpio_set_value(MDIR4B, 1);
-			rc_pwm_set_duty(2, 'B', 0.0);
-			break;
-		default:
-			fprintf(stderr,"ERROR in rc_motor_brake, motor must be between 1 and 4\n");
-			return -1;
+	// set gpio and pwm for that motor
+	if(unlikely(rc_gpio_set_value(dirA[motor-1], 1))){
+		fprintf(stderr,"ERROR in rc_motor_brake, failed to write to gpio pin %d\n",dirA[motor-1]);
+		return -1;
+	}
+	if(unlikely(rc_gpio_set_value(dirB[motor-1], 1))){
+		fprintf(stderr,"ERROR in rc_motor_brake, failed to write to gpio pin %d\n",dirB[motor-1]);
+		return -1;
+	}
+	if(unlikely(rc_pwm_set_duty(pwmss[motor-1], pwmch[motor-1], 0.0))){
+		fprintf(stderr,"ERROR in rc_motor_brake, failed to write to pwm %d%c\n",pwmss[motor-1], pwmch[motor-1]);
+		return -1;
 	}
 	return 0;
 }
@@ -328,7 +296,7 @@ int rc_motor_brake(int motor){
 int rc_motor_brake_all()
 {
 	int i;
-	for(i=1;i<=MOTOR_CHANNELS; i++){
+	for(i=1;i<=CHANNELS; i++){
 		if(rc_motor_brake(i)) return -1;
 	}
 	return 0;

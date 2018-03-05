@@ -1,12 +1,20 @@
-/*******************************************************************************
-* rc_test_motors.c
-*
-* demonstrates use of H-bridges to drive motors. Instructions are printed
-* to the screen when called.
-*******************************************************************************/
+/**
+ * @file rc_test_motors.c
+ * @example    rc_test_motors
+ *
+ * Demonstrates use of H-bridges to drive motors with the Robotics Cape and
+ * BeagleBone Blue. Instructions are printed to the screen when called.
+ */
 
-#include "../../libraries/rc_usefulincludes.h"
-#include "../../libraries/roboticscape.h"
+
+#include <stdio.h>
+#include <signal.h>
+#include <stdlib.h> // for atoi
+#include <getopt.h>
+#include <rc/motor.h>
+#include <rc/time.h>
+
+int running;
 
 // possible modes, user selected with command line arguments
 typedef enum m_mode_t{
@@ -18,7 +26,8 @@ typedef enum m_mode_t{
 } m_mode_t;
 
 // printed if some invalid argument was given
-void print_usage(){
+void print_usage()
+{
 	printf("\n");
 	printf("-d {duty}   define a duty cycle from -1.0 to 1.0\n");
 	printf("-b          enable motor brake function\n");
@@ -30,13 +39,21 @@ void print_usage(){
 	printf("\n");
 }
 
-int main(int argc, char *argv[]){
+// interrupt handler to catch ctrl-c
+void signal_handler(__attribute__ ((unused)) int dummy)
+{
+	running=0;
+	return;
+}
+
+int main(int argc, char *argv[])
+{
 	double duty = 0.0;
 	int ch = 1;
 	int c, in;
-	int all = 1;	// set to 0 if a motor (-m) argument is given 
+	int all = 1;	// set to 0 if a motor (-m) argument is given
 	m_mode_t m_mode = DISABLED;
-	
+
 	// parse arguments
 	opterr = 0;
 	while ((c = getopt(argc, argv, "m:d:fbs:h")) != -1){
@@ -92,85 +109,78 @@ int main(int argc, char *argv[]){
 			break;
 		}
 	}
-	
+
 	// if the user didn't give enough arguments, print usage
 	if(m_mode==DISABLED){
 		print_usage();
 		return -1;
 	}
-	
-	// initialize hardware first
-	if(rc_initialize()){
-		fprintf(stderr,"ERROR: failed to run rc_initialize(), are you root?\n");
-		return -1;
-	}
 
-	// bring H-bridges of of standby
-	rc_enable_motors(); 
-	rc_set_led(GREEN,ON);
-	rc_set_led(RED,ON);
-	
+	// set signal handler so the loop can exit cleanly
+	signal(SIGINT, signal_handler);
+	running =1;
+
+	// initialize hardware first
+	if(rc_motor_init()) return -1;
+
 	// decide what to do
 	switch(m_mode){
 	case NORMAL:
 		if(all){
 			printf("sending duty cycle %0.4f to all motors\n", duty);
-			rc_set_motor_all(duty);
+			rc_motor_set_all(duty);
 		}
 		else{
 			printf("sending duty cycle %0.4f to motor %d\n", duty, ch);
-			rc_set_motor(ch,duty);
+			rc_motor_set(ch,duty);
 		}
 		break;
 	case FREE:
 		if(all){
 			printf("Letting all motors free spin\n");
-			rc_set_motor_free_spin_all(duty);
+			rc_motor_free_spin_all(duty);
 		}
 		else{
 			printf("Letting motor %d free spin\n", ch);
-			rc_set_motor_free_spin(ch);
+			rc_motor_free_spin(ch);
 		}
 		break;
 	case BRAKE:
 		if(all){
 			printf("Braking all motors\n");
-			rc_set_motor_brake_all();
+			rc_motor_brake_all();
 		}
 		else{
 			printf("Braking motor %d\n", ch);
-			rc_set_motor_brake(ch);
+			rc_motor_brake(ch);
 		}
 		break;
 	default:
 		break;
 	}
-	
+
 	// wait untill the user exits
-	while(rc_get_state()!=EXITING){
+	while(running){
 		if(m_mode==SWEEP){
 			duty = -duty; // toggle back and forth to sweep motors side to side
 			if(all){
 				printf("sending duty cycle %0.4f to all motors\n", duty);
-				rc_set_motor_all(duty);
+				rc_motor_set_all(duty);
 			}
 			else{
 				printf("sending duty cycle %0.4f to motor %d\n", duty, ch);
-				rc_set_motor(ch,duty);
+				rc_motor_set(ch,duty);
 			}
 		}
-		
+
 		// if not in SWEEP mode, the motors have already been set so do nothing
 		rc_usleep(500000);
 	}
-	
-	// User must have existed, put H-bridges into standby
-	// not entirely necessary since cleanup_cape does this too
-	rc_disable_motors();	
-	printf("All Motors Off\n\n");
-	
+
+
 	// final cleanup
-	rc_cleanup();
+	printf("calling motor_cleanup\n");
+	rc_motor_cleanup();
 	return 0;
 }
 

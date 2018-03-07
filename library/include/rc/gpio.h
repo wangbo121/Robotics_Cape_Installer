@@ -152,7 +152,7 @@ void rc_gpio_cleanup(int pin);
 
 
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 }
 #endif
 

@@ -80,6 +80,13 @@ int rc_led_set(rc_led_t led, int value)
 	return 0;
 }
 
+void rc_led_cleanup()
+{
+	int i;
+	for(i=0;i<NUM_LEDS;i++) close(fd[i]);
+	return;
+}
+
 
 int rc_led_get(rc_led_t led)
 {

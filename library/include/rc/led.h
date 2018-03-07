@@ -43,6 +43,9 @@ typedef enum rc_led_t{
  */
 int rc_led_set(rc_led_t led, int value);
 
+
+void rc_led_cleanup();
+
 /**
  * @brief      gets the current state of an LED
  *

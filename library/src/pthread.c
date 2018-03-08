@@ -8,7 +8,7 @@
 #include <sys/types.h>	// for getpid
 #include <unistd.h>	// for getpid
 
-#include <rc/pthread_helpers.h>
+#include <rc/pthread.h>
 
 
 int rc_pthread_create(pthread_t *thread, void*(*func)(void*), void* arg, int policy, int priority)

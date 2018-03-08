@@ -18,7 +18,7 @@
 #ifndef RC_MOTOR_H
 #define RC_MOTOR_H
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 

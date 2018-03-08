@@ -26,7 +26,7 @@
 #include <rc/time.h>
 #include <rc/gpio.h>
 #include <rc/i2c.h>
-#include <rc/pthread_helpers.h>
+#include <rc/pthread.h>
 
 #include "mpu_defs.h"
 #include "dmp_firmware.h"
@@ -1772,11 +1772,11 @@ void* __dmp_interrupt_handler( __unused void* ptr)
 					&last_interrupt_timestamp_nanos);
 		// check for bad things that may have happened
 		if(imu_shutdown_flag) break;
-		if(ret == RC_GPIO_EVENT_ERROR){
+		if(ret == RC_GPIOEVENT_ERROR){
 			fprintf(stderr, "ERROR in IMU interrupt handler calling poll\n");
 			continue;
 		}
-		if(ret == RC_GPIO_EVENT_TIMEOUT){
+		if(ret == RC_GPIOEVENT_TIMEOUT){
 			if(config.show_warnings){
 				fprintf(stderr, "WARNING, gpio poll timeout\n");
 			}

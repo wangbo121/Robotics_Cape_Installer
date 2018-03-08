@@ -94,11 +94,11 @@ int rc_gpio_get_value(int pin);
 #endif
 
 /**
- * @brief      Initializes a pin for interrupt event polling
+ * @brief      Initializes a pin for interrupt event polling and normal reading.
  *
  *             Handle flags exists if the user wishes to configure the pic as
  *             active-low, open-source, or open-drain. This is usually not
- *             necessrary and can be left at 0. Since this also
+ *             necessary and can be left at 0.
  *
  * @param[in]  pin           The pin ID
  * @param[in]  handle_flags  Additional pin configuration flags, this can
@@ -112,10 +112,10 @@ int rc_gpio_get_value(int pin);
 int rc_gpio_init_event(int pin, int handle_flags, int event_flags);
 
 /** possible return values for rc_gpio_poll **/
-#define RC_GPIO_EVENT_ERROR		-1
-#define RC_GPIO_EVENT_TIMEOUT		0
-#define RC_GPIO_EVENT_RISING_EDGE	1
-#define RC_GPIO_EVENT_FALLING_EDGE	2
+#define RC_GPIOEVENT_ERROR		-1
+#define RC_GPIOEVENT_TIMEOUT		0
+#define RC_GPIOEVENT_RISING_EDGE	1
+#define RC_GPIOEVENT_FALLING_EDGE	2
 
 /**
  * @brief      polls a pin when configured for interrupt event polling

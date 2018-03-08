@@ -101,7 +101,7 @@ int main(int argc, char *argv[]){
 
 	// set signal handler so the loop can exit cleanly
 	signal(SIGINT, signal_handler);
-	running =1;
+	running = 1;
 
 	// use defaults for now, except also enable magnetometer.
 	rc_mpu_config_t conf = rc_mpu_default_config();

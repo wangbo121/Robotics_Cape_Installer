@@ -1,5 +1,5 @@
 /**
- * @headerfile rc/pthread_helpers.h <rc/pthread_herlpes.h>
+ *  <rc/pthread.h>
  *
  * @breif helper functions for managing pthreads and process niceness
  *
@@ -12,8 +12,8 @@
  */
 
 
-#ifndef RC_PTHREAD_HELPERS_H
-#define RC_PTHREAD_HELPERS_H
+#ifndef RC_PTHREAD_H
+#define RC_PTHREAD_H
 
 #ifdef  __cplusplus
 extern "C" {

@@ -188,11 +188,11 @@ int rc_gpio_poll(int pin, int timeout_ms, uint64_t* event_time_ns)
 
 	// sanity checks
 	if(unlikely(pin<0 || pin>=(N_CHIPS*LINES_PER_CHIP))){
-		fprintf(stderr, "ERROR, in rc_gpio_poll, gpio pin out of bounds\n");
+		fprintf(stderr, "ERROR in rc_gpio_poll, gpio pin out of bounds\n");
 		return -1;
 	}
 	if(unlikely(event_fd[pin]==0)){
-		fprintf(stderr,"ERROR, in rc_gpio_poll, pin %d not initialized yet\n",pin);
+		fprintf(stderr,"ERROR in rc_gpio_poll, pin %d not initialized yet\n",pin);
 		return -1;
 	}
 
@@ -205,20 +205,20 @@ int rc_gpio_poll(int pin, int timeout_ms, uint64_t* event_time_ns)
 	ret = poll(poll_fds, 1, timeout_ms);
 	if(unlikely(ret==-1)){
 		perror("ERROR in rc_gpio_poll calling poll");
-		return RC_GPIO_EVENT_ERROR;
+		return RC_GPIOEVENT_ERROR;
 	}
-	else if(ret==0) return RC_GPIO_EVENT_TIMEOUT;
+	else if(ret==0) return RC_GPIOEVENT_TIMEOUT;
 
 	// read value to see if it was rising or falling
 	ret = read(event_fd[pin], &event, sizeof(event));
 	if(ret==-1){
 		perror("ERROR in rc_gpio_poll while reading event");
-		return RC_GPIO_EVENT_ERROR;
+		return RC_GPIOEVENT_ERROR;
 	}
 
 	if(event.id!=GPIOEVENT_EVENT_RISING_EDGE && event.id!=GPIOEVENT_EVENT_FALLING_EDGE){
-		fprintf(stderr,"ERROR: in rc_gpio_poll, read unknown event ID\n");
-		return RC_GPIO_EVENT_ERROR;
+		fprintf(stderr,"ERROR in rc_gpio_poll, read unknown event ID\n");
+		return RC_GPIOEVENT_ERROR;
 	}
 
 	// save event time if user gave non-null pointer
@@ -226,9 +226,9 @@ int rc_gpio_poll(int pin, int timeout_ms, uint64_t* event_time_ns)
 
 	// return correct direction
 	if(event.id == GPIOEVENT_EVENT_RISING_EDGE)
-		return RC_GPIO_EVENT_RISING_EDGE;
+		return RC_GPIOEVENT_RISING_EDGE;
 
-	return RC_GPIO_EVENT_FALLING_EDGE;
+	return RC_GPIOEVENT_FALLING_EDGE;
 }
 
 

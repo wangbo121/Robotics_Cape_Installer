@@ -7,7 +7,7 @@
  *
  * @date       1/19/2018
  *
- * @addtogroup pthread_helpers
+ * @addtogroup pthread
  * @{
  */
 

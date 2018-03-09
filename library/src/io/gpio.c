@@ -176,7 +176,7 @@ int rc_gpio_init_event(int pin, int handle_flags, int event_flags)
 
 	event_fd[pin]=req.fd;
 	handle_fd[pin]=req.fd; // put same fd in handle array so reads also work
-	return 0;
+	return req.fd;
 }
 
 

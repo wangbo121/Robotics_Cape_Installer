@@ -25,10 +25,8 @@ LFLAGS		:= -lm -lrt -pthread -L $(LIBDIR) -lroboticscape
 # commands
 RM		:= rm -rf
 INSTALL		:= install -m 4755
+INSTALLNONEXEC	:= install -m 644
 INSTALLDIR	:= install -d -m 755
-LINK		:= ln -s -f
-LINKDIR		:= /etc/roboticscape
-LINKNAME	:= link_to_startup_program
 
 # prefix variable for making debian package
 prefix		?= /usr/local

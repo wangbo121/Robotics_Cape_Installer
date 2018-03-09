@@ -1,11 +1,11 @@
-/*******************************************************************************
-* rc_startup_routine.c
-*
-* James Strawson 2016
-* Hardware drivers and the bone capemanager initialize in a rather unpredictable
-* schedule. This program checks everything necessary for the cape library to run
-* in order.
-*******************************************************************************/
+/**
+ * @file rc_startup_routine.c
+ *
+ *
+ * This startup routine is called by the roboticscape systemd service and serves
+ * to do some initial setup such as setting permissions on things that udev cant
+ * handle such as pwm and gpio
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,7 +20,7 @@
 #define TIMEOUT_S 5
 #define START_LOG "/var/log/roboticscape/startup_log.txt"
 
-
+static int set_gpio_permissions();
 static int check_timeout();
 static int setup_pwm();
 static int check_eqep();
@@ -44,10 +44,6 @@ int main()
 	start_us = rc_nanos_since_epoch()/1000 ;
 	system("echo start > " START_LOG);
 
-	// stop a possibly running process and
-	// delete old pid file if it's left over from an improper shudown
-	rc_kill_existing_process(1.5);
-
 	// whitelist blue, black, and black wireless only when RC device tree is in use
 	model = rc_model_get();
 	if(model!=BB_BLACK_RC && model!=BB_BLACK_W_RC && model!=BB_BLUE){
@@ -57,25 +53,25 @@ int main()
 		}
 	}
 
-	// // export gpio pins
-	// while(configure_gpio_pins()!=0){
-	// 	if(check_timeout()){
-	// 		system("echo 'timeout reached while waiting for gpio driver' >> " START_LOG);
-	// 		printf("timeout reached while waiting for gpio driver\n");
-	// 	 	return -1;
-	// 	}
-	// 	rc_usleep(500000);
-	// }
-	// time = (rc_nanos_since_epoch()/1000-start_us)/1000000;
-	// sprintf(buf, "echo 'time (s): %4.1f GPIO loaded' >> %s",time,START_LOG);
-	// system(buf);
+	// set permissions on gpio
+	while(set_gpio_permissions()!=0){
+		if(check_timeout()){
+			system("echo 'timeout reached while waiting for gpio driver' >> " START_LOG);
+			fprintf(stderr,"timeout reached while waiting for gpio driver\n");
+		 	return -1;
+		}
+		rc_usleep(500000);
+	}
+	time = (rc_nanos_since_epoch()/1000-start_us)/1000000;
+	sprintf(buf, "echo 'time (s): %4.1f GPIO loaded' >> %s",time,START_LOG);
+	system(buf);
 
 
 	// wait for eQEP to load
 	while(check_eqep()!=0){
 		if(check_timeout()){
 			system("echo 'timeout reached while waiting for eQEP driver' >> " START_LOG);
-			printf("timeout reached while waiting for eQEP driver\n");
+			fprintf(stderr,"timeout reached while waiting for eQEP driver\n");
 		 	return -1;
 		}
 		rc_usleep(500000);
@@ -89,7 +85,7 @@ int main()
 	while(setup_pwm()!=0){
 		if(check_timeout()){
 			system("echo 'timeout reached while waiting for pwm driver' >> " START_LOG);
-			printf("timeout reached while waiting for pwm driver\n");
+			fprintf(stderr,"timeout reached while waiting for pwm driver\n");
 			return -1;
 		}
 		rc_usleep(500000);
@@ -129,6 +125,36 @@ int main()
 	return 0;
 }
 
+
+int set_gpio_permissions(){
+	int ret;
+	// check all gpio devices are online
+	if(access("/dev/gpiochip3",F_OK)!=0){
+		// not there yet, wait a bit more
+		return -1;
+	}
+	if(access("/dev/gpiochip2",F_OK)!=0){
+		// not there yet, wait a bit more
+		return -1;
+	}
+	if(access("/dev/gpiochip1",F_OK)!=0){
+		// not there yet, wait a bit more
+		return -1;
+	}
+	if(access("/dev/gpiochip0",F_OK)!=0){
+		// not there yet, wait a bit more
+		return -1;
+	}
+	ret=system("/bin/chown -R root:gpio /dev/gpiochip* ");
+	if(ret){
+		fprintf(stderr,"ERROR setting gpiochip owner, returned %d\n",ret);
+	}
+	ret=system("/bin/chmod -R ug+rw /dev/gpiochip* ");
+	if(ret){
+		fprintf(stderr,"ERROR setting gpiochip permission, returned %d\n",ret);
+	}
+	return 0;
+}
 
 /**
  * @brief      looks and the current time to decide if the timeout has been reached.

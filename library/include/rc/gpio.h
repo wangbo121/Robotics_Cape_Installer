@@ -98,7 +98,9 @@ int rc_gpio_get_value(int pin);
  *
  *             Handle flags exists if the user wishes to configure the pic as
  *             active-low, open-source, or open-drain. This is usually not
- *             necessary and can be left at 0.
+ *             necessary and can be left at 0. This function returns the file
+ *             descriptor used for polling in case the user wants to use a
+ *             polling method other than rc_gpio_poll.
  *
  * @param[in]  pin           The pin ID
  * @param[in]  handle_flags  Additional pin configuration flags, this can
@@ -107,7 +109,7 @@ int rc_gpio_get_value(int pin);
  *                           GPIOEVENT_REQUEST_FALLING_EDGE, or
  *                           GPIOEVENT_REQUEST_BOTH_EDGES
  *
- * @return     0 on success or -1 on failure
+ * @return     File descriptor for the GPIO event or -1 on failure
  */
 int rc_gpio_init_event(int pin, int handle_flags, int event_flags);
 

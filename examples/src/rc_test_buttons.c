@@ -1,9 +1,9 @@
-/*******************************************************************************
-* rc_test_buttons.c
-*
-* This is a more simple example than blink.c for testing button functionality.
-* It simply prints to the screen when a button has been pressed or released.
-*******************************************************************************/
+/**
+ * @file rc_test_buttons.c
+ * @example    rc_test_buttons
+ *
+ * This is a very basic test of button functionality. It simply prints to the screen when a button has been pressed or released.
+ **/
 
 #include <stdio.h>
 #include <signal.h>
@@ -46,15 +46,16 @@ void signal_handler(__attribute__ ((unused)) int dummy)
 int main()
 {
 	// initialize pause and mode buttons
-	if(rc_button_init(RC_BTN_PIN_PAUSE, RC_BTN_POLARITY_NORM_HIGH,0)){
+	if(rc_button_init(RC_BTN_PIN_PAUSE, RC_BTN_POLARITY_NORM_HIGH,
+						RC_BTN_DEBOUNCE_DEFAULT_US)){
 		fprintf(stderr,"ERROR: failed to init buttons\n");
 		return -1;
 	}
-	// if(rc_button_init(RC_BTN_PIN_MODE, RC_BTN_POLARITY_NORM_HIGH,
-	// 					RC_BTN_DEBOUNCE_DEFAULT_US)){
-	// 	fprintf(stderr,"ERROR: failed to init buttons\n");
-	// 	return -1;
-	// }
+	if(rc_button_init(RC_BTN_PIN_MODE, RC_BTN_POLARITY_NORM_HIGH,
+						RC_BTN_DEBOUNCE_DEFAULT_US)){
+		fprintf(stderr,"ERROR: failed to init buttons\n");
+		return -1;
+	}
 
 	// set signal handler so the loop can exit cleanly
 	signal(SIGINT, signal_handler);
@@ -62,12 +63,12 @@ int main()
 
 	// Assign callback functions
 	rc_button_set_callbacks(RC_BTN_PIN_PAUSE,on_pause_press,on_pause_release);
-	//rc_button_set_callbacks(RC_BTN_PIN_MODE,on_mode_press,on_mode_release);
+	rc_button_set_callbacks(RC_BTN_PIN_MODE,on_mode_press,on_mode_release);
 
 
 	//toggle leds till the program state changes
 	printf("Press buttons to see response\n");
-	while(running)	rc_usleep(10000);
+	while(running)	rc_usleep(500000);
 
 	// cleanup and exit
 	rc_button_cleanup();

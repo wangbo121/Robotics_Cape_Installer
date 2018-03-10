@@ -1,6 +1,6 @@
 /**
- * @file rc_cpu_freq.c
- * @example    rc_cpu_freq
+ * @file rc_cpu.c
+ * @example    rc_cpu
  *
  * This cycles the CPU through each available frequency and leaves the frequency
  * set to the default "ondemand" governor.

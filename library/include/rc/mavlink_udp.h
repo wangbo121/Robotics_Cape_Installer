@@ -10,12 +10,17 @@
  *             commonly used packets.
  *
  * @author     James Strawson & Henry Gaudet
- *
  * @date       1/24/2018
+ *
+ * @addtogroup MAVLINK
  */
 
 #ifndef RC_MAVLINK_UDP_H
 #define RC_MAVLINK_UDP_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 #include <stdint.h>	// for specific integer types
@@ -264,8 +269,12 @@ int rc_mav_print_msg_name(int msg_id);
 
 
 
+#ifdef __cplusplus
+}
+#endif
 
+#endif // RC_MAVLINK_UDP_H
 
+///@} end group Mavlink
 
-#endif /* RC_MAVLINK_UDP_H */
 

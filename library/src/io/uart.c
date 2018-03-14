@@ -32,7 +32,7 @@ static float bus_timeout_s[MAX_BUS+1]; // user-requested timeout in seconds for 
 static int shutdown_flag[MAX_BUS+1];
 
 
-int rc_uart_init(int bus, int baudrate, float timeout_s)
+int rc_uart_init(int bus, int baudrate, float timeout_s, int canonical_en, int stop_bits, int parity_en)
 {
 	int tmpfd, tenths;
 	char buf[STRING_BUF];
@@ -41,12 +41,15 @@ int rc_uart_init(int bus, int baudrate, float timeout_s)
 
 	// sanity checks
 	if(bus<0 || bus>MAX_BUS){
-		fprintf(stderr,"ERROR: uart bus must be between 0 & %d\n", MAX_BUS);
+		fprintf(stderr,"ERROR in rc_uart_init, bus must be between 0 & %d\n", MAX_BUS);
 		return -1;
 	}
 	if(timeout_s<0.1f){
-		fprintf(stderr,"ERROR: timeout must be >=0.1 seconds\n");
+		fprintf(stderr,"ERROR in rc_uart_init, timeout must be >=0.1 seconds\n");
 		return -1;
+	}
+	if(stop_bits!=1 && stop_bits!=2){
+		fprintf(stderr,"ERROR in rc_uart_init, stop bits must be 1 or 2\n");
 	}
 
 	switch(baudrate){
@@ -134,9 +137,13 @@ int rc_uart_init(int bus, int baudrate, float timeout_s)
 	// the following lines technically do nothing since we just wiped config
 	// but they exist to allow easy fiddling and be more explicit about
 	// which settings are in use
-	config.c_lflag &= ~ICANON;	// turn off canonical read
-	config.c_cflag &= ~PARENB;	// no parity
-	config.c_cflag &= ~CSTOPB;	// disable 2 stop bits (use just 1)
+	if(canonical_en) config.c_lflag &= ~ICANON;
+	else config.c_lflag |= ICANON;
+	if(parity_en) config.c_cflag |= PARENB;
+	else config.c_cflag &= ~PARENB;
+	if(stop_bits==1) config.c_cflag &= ~CSTOPB;	// disable 2 stop bits (use just 1)
+	else config.c_cflag |= CSTOPB; // enable 2 stop bits
+
 	config.c_cflag &= ~CSIZE;	// wipe all size masks
 	config.c_cflag |= CS8;		// set size to 8 bit characters
 	config.c_cflag |= CREAD;	// enable reading

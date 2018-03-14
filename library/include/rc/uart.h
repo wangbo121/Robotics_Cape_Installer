@@ -15,7 +15,7 @@
 #ifndef RC_UART_H
 #define RC_UART_H
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -23,29 +23,29 @@ extern "C" {
  * @brief      Initializes a UART bus /dev/ttyO{bus} at specified baudrate and
  *             timeout.
  *
- *             This is a very generalized function that configures the bus in
- *             the most common configuration for talking to sensors such as GPS
- *             units which is summarized as follows:
+ *             This is a very generalized function that configures the bus for
+ *             8-bit characters and ignores the modem status lines.
  *
- *             - non-canonical mode
- *             - no parity
- *             - 1 stop bit
- *             - 8-bit characters
- *             - ignore modem status lines
- *
- *             If you need a configuration other than this then you are probably
- *             doing something fancy with the bus and you will probably want to
- *             do your own reading/writing to the bus with standard linux
+ *             If you need a configuration other than whats presented here then
+ *             you are probably doing something fancy with the bus and you will
+ *             probably want to do your own reading/writing with standard linux
  *             methods.
  *
- * @param[in]  bus       The bus number /dev/ttyO{bus}
- * @param[in]  baudrate  must be one of the standard speeds in the UART spec.
- *                       115200 and 57600 are most common.
- * @param[in]  timeout   timeout is in seconds and must be >=0.1
+ * @param[in]  bus           The bus number /dev/ttyO{bus}
+ * @param[in]  baudrate      must be one of the standard speeds in the UART
+ *                           spec. 115200 and 57600 are most common.
+ * @param[in]  timeout       timeout is in seconds and must be >=0.1
+ * @param[in]  canonical_en  0 for non-canonical mode (raw data), non-zero for
+ *                           canonical mode where only one line ending in '\n'
+ *                           is read at a time.
+ * @param[in]  stop_bits     number of stop bits, 1 or 2, usually 1 for most
+ *                           sensors
+ * @param[in]  parity_en     0 to disable parity, nonzero to enable. usually
+ *                           disabled for most sensors.
  *
  * @return     0 on success, -1 on failure
  */
-int rc_uart_init(int bus, int baudrate, float timeout);
+int rc_uart_init(int bus, int baudrate, float timeout, int canonical_en, int stop_bits, int parity_en);
 
 
 /**

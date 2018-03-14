@@ -5,12 +5,17 @@
  *             mavlink packets. For use with the functions in mavlink_udp.h
  *
  * @author     James Strawson & Henry Gaudet
- *
  * @date       1/24/2018
+ *
+ * @addtogroup MAVLINK
  */
 
 #ifndef RC_MAVLINK_UDP_HELPERS_H
 #define RC_MAVLINK_UDP_HELPERS_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 #include <stdint.h>	// for specific integer types
@@ -657,5 +662,12 @@ int rc_mav_send_att_pos_mocap(
  */
 int rc_mav_get_att_pos_mocap(mavlink_att_pos_mocap_t* data);
 
-#endif /* RC_MAVLINK_UDP_HELPERS_H */
 
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // RC_MAVLINK_UDP_HELPERS_H
+
+///@} end group Mavlink

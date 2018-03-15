@@ -51,6 +51,11 @@ int rc_i2c_init(int bus, uint8_t devAddr)
 	// sanity check
 	if(unlikely(__check_bus_range(bus))) return -1;
 
+	// if already initialized just set the device address
+	if(i2c[bus].initialized){
+		return rc_i2c_set_device_address(bus, devAddr);
+	}
+
 	// lock the bus during this operation
 	i2c[bus].lock = 1;
 	i2c[bus].initialized = 0;
@@ -101,7 +106,7 @@ int rc_i2c_set_device_address(int bus, uint8_t devAddr)
 int rc_i2c_close(int bus)
 {
 	if(unlikely(__check_bus_range(bus))) return -1;
-	if(close(i2c[bus].file)<0) return -1;
+	close(i2c[bus].file);
 	i2c[bus].devAddr = 0;
 	i2c[bus].initialized = 0;
 	i2c[bus].lock=0;

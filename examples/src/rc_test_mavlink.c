@@ -116,7 +116,7 @@ void callback_func_connection_lost()
 
 
 // interrupt handler to catch ctrl-c
-void signal_handler(int dummy)
+void signal_handler(__attribute__ ((unused)) int dummy)
 {
 	running=0;
 	return;

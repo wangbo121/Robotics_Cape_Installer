@@ -19,7 +19,7 @@
 extern "C" {
 #endif
 
-
+#include <stdint.h>
 #include <rc/math/vector.h>
 #include <rc/math/ring_buffer.h>
 

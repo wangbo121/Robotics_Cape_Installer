@@ -21,7 +21,7 @@
 void print_usage()
 {
 	printf("\n");
-	printf("Usage: rc_uart_loop_back {bus}\n");
+	printf("Usage: rc_uart_loopback {bus}\n");
 	printf("This sends a short message out the specified bus and then\n");
 	printf("reads it back in. This requires connecting RX to TX to make a loopback.\n");
 	printf("For Robotics Cape or BeagleBone Blue specify bus 0,1,2 or 5\n");
@@ -50,7 +50,8 @@ int main(int argc, char *argv[])
 	}
 
 	printf("\ntesting UART bus %d\n\n", bus);
-	if(rc_uart_init(bus, BAUDRATE, TIMEOUT_S)){
+	// disable canonical (0), 1 stop bit (1), disable parity (0)
+	if(rc_uart_init(bus, BAUDRATE, TIMEOUT_S, 0,1,0)){
 		printf("Failed to rc_uart_init%d\n", bus);
 		return -1;
 	}

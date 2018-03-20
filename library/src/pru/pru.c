@@ -17,6 +17,7 @@
 #include <unistd.h>	// for close
 #include <sys/mman.h>	// mmap
 #include <string.h>
+#include <rc/time.h>
 #include <rc/pru.h>
 
 // remoteproc driver
@@ -46,40 +47,46 @@ int rc_pru_start(int ch, const char* fw_name)
 		fprintf(stderr, "ERROR in rc_pru_start, received NULL pointer\n");
 		return -1;
 	}
+	// check firmware exists
+	memset(buf,0,sizeof(buf));
+	snprintf(buf, sizeof(buf), "/lib/firmware/%s", fw_name);
+	if(access(buf, F_OK)!=0){
+		fprintf(stderr, "ERROR in rc_pru_start, requested firmware %s doesn't exist in /lib/firmware\n", fw_name);
+		return -1;
+	}
 
-	// check state
-	if(ch=0) fd=open(PRU0_STATE, O_RDWR);
+	if(rc_pru_stop(ch)==-1) return -1;
+
+
+	// open fd's
+	if(ch==0) fd=open(PRU0_STATE, O_RDWR);
 	else fd=open(PRU1_STATE, O_RDWR);
 	if(fd==-1){
 		perror("ERROR in rc_pru_start opening remoteproc driver");
 		fprintf(stderr,"PRU probably not enabled in device tree\n");
 		return -1;
 	}
-	ret=read(fd, buf, sizeof(buf));
-	if(ret==-1){
-		perror("ERROR in rc_pru_start reading state");
-		close(fd);
-		return -1;
-	}
-	// if already running, warn and stop it
-	if(strcmp(buf,"running")==0){
-		fprintf(stderr,"WARNING: pru%d is already running, restarting with requested firmware\n",ch);
-		ret=write(fd,"stop",5);
-		if(ret==-1){
-			perror("ERROR in rc_pru_start while writing to remoteproc state");
-			close(fd);
-			return -1;
-		}
-	}
-	// if we read anything except "offline" there is something weird
-	else if(strcmp(buf,"offline")){
-		fprintf(stderr, "ERROR: remoteproc state should be 'offline' or 'running', read:%s\n", buf);
-		close(fd);
-		return -1;
-	}
+	// memset(buf,0,sizeof(buf));
+	// ret=read(fd, buf, sizeof(buf));
+	// if(ret==-1){
+	// 	perror("ERROR in rc_pru_start reading state");
+	// 	close(fd);
+	// 	return -1;
+	// }
+	// // if already running, warn and stop it
+	// if(strcmp(buf,"running\n")==0){
+	// 	fprintf(stderr,"WARNING: pru%d is already running, restarting with requested firmware\n",ch);
+	// 	if(rc_pru_stop(ch)==-1) return -1;
+	// }
+	// // if we read anything except "offline" there is something weird
+	// else if(strcmp(buf,"offline\n")){
+	// 	fprintf(stderr, "ERROR: remoteproc state should be 'offline' or 'running', read:%s\n", buf);
+	// 	close(fd);
+	// 	return -1;
+	// }
 
 	// now write firmware title
-	if(ch=0) fw_fd=open(PRU0_FW, O_WRONLY);
+	if(ch==0) fw_fd=open(PRU0_FW, O_WRONLY);
 	else fw_fd=open(PRU1_FW, O_WRONLY);
 	if(fw_fd==-1){
 		perror("ERROR in rc_pru_start opening remoteproc driver");
@@ -95,22 +102,24 @@ int rc_pru_start(int ch, const char* fw_name)
 	close(fw_fd);
 
 	// finally start the pru
-	ret=write(fd, "start", 6);
+	ret=write(fd, "start", 5);
 	if(ret==-1){
 		perror("ERROR in rc_pru_start starting remoteproc");
 		close(fd);
 		return -1;
 	}
 
-	// make sure it's running
+	// wait for it to start and make sure it's running
+	//rc_usleep(100000);
+	memset(buf,0,sizeof(buf));
 	ret=read(fd, buf, sizeof(buf));
 	if(ret==-1){
 		perror("ERROR in rc_pru_start reading state");
 		close(fd);
 		return -1;
 	}
-	if(strcmp(buf,"running")){
-		fprintf(stderr,"ERROR: pru%d failed to start\n", ch);
+	if(strcmp(buf,"running\n")){
+		fprintf(stderr,"ERROR: in rc_pru_init, pru%d failed to start\n", ch);
 		fprintf(stderr,"expected state to become 'running', instead is: %s\n",buf);
 		close(fd);
 		return -1;
@@ -166,36 +175,59 @@ int rc_pru_stop(int ch)
 	}
 
 	// check state
-	if(ch=0) fd=open(PRU0_STATE, O_RDWR);
+	if(ch==0) fd=open(PRU0_STATE, O_RDWR);
 	else fd=open(PRU1_STATE, O_RDWR);
 	if(fd==-1){
 		perror("ERROR in rc_pru_stop opening remoteproc driver");
 		fprintf(stderr,"PRU probably not enabled in device tree\n");
 		return -1;
 	}
+	memset(buf,0,sizeof(buf));
 	ret=read(fd, buf, sizeof(buf));
+	close(fd);
 	if(ret==-1){
 		perror("ERROR in rc_pru_stop reading state");
 		close(fd);
 		return -1;
 	}
-	// running, stop it
-	if(strcmp(buf,"running")==0){
-		ret=write(fd,"stop",5);
+
+	// if running, stop it
+	if(strcmp(buf,"running\n")==0){
+		ret=write(fd,"stop",4);
 		if(ret==-1){
 			perror("ERROR in rc_pru_stop while writing to remoteproc state");
 			close(fd);
 			return -1;
 		}
 	}
-	// if we read anything except "offline" there is something weird
-	if(strcmp(buf,"offline")){
-		fprintf(stderr, "ERROR: remoteproc state should be 'offline', read:%s\n", buf);
+	// already stopped, just return
+	else if(strcmp(buf,"offline\n")==0){
+		close(fd);
+		return 0;
+	}
+	// something unexpected
+	else{
+		fprintf(stderr, "ERROR in rc_pru_stop remoteproc state should be 'offline' or 'running', read:%s\n", buf);
 		close(fd);
 		return -1;
 	}
 
+	// wait for PRU to stop and check it stopped
+	rc_usleep(1000000);
+	if(ch==0) fd=open(PRU0_STATE, O_RDWR);
+	else fd=open(PRU1_STATE, O_RDWR);
+	memset(buf,0,sizeof(buf));
+	ret=read(fd, buf, sizeof(buf));
 	close(fd);
+	if(ret==-1){
+		perror("ERROR in rc_pru_stop reading state");
+		return -1;
+	}
+	// if we read anything except "offline" there is something weird
+	if(strcmp(buf,"offline\n")){
+		fprintf(stderr, "ERROR in rc_pru_stop, remoteproc state should now be 'offline', read:%s\n", buf);
+		return -1;
+	}
 	return 0;
 }
 

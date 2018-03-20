@@ -8,7 +8,6 @@
  *             routines separately from those.
  *
  * @addtogroup PRU_Control
- * @ingroup PRU
  * @{
  */
 

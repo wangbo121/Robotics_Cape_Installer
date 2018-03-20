@@ -87,9 +87,9 @@
 extern "C" {
 #endif
 
-#define RC_SERVO_CH_MAX	8
-#define RC_SERVO_CH_MIN	1
-#define RC_SERVO_CH_ALL	0
+#define RC_SERVO_CH_MIN	1 ///< servo channels range from 1-8
+#define RC_SERVO_CH_MAX	8 ///< servo channels range from 1-8
+#define RC_SERVO_CH_ALL	0 ///< providing this as an argument writes the same pulse to all channels
 
 /**
  * @brief      Configures the PRU to send servo pulses
@@ -185,9 +185,17 @@ int rc_servo_send_pulse_normalized(int ch, float input);
  *             programming tool but can also be done with the rc_calibrate_escs
  *             example program that comes installed with this package.
  *
+ *             While the normal operating range for the normalized input is 0.0
+ *             to 1.0, inputs as low as -0.1 are allowed. This is because many
+ *             ESC firmwares such as BLHeli will still turn or chirp the motors
+ *             at 0.0 throttle, but will be stationary and still armed and awake
+ *             with throttle values slightly lower. We suggest using a throttle
+ *             of -0.1 for at least a second at the beginnig of your program to
+ *             wake the ESCs up from sleep but still keep the motors still.
+ *
  * @param[in]  ch     Channel to send signal to (1-8) or 0 to send to all
  *                    channels.
- * @param[in]  input  normalized position from 0 to 1.0
+ * @param[in]  input  normalized position from -0.1 to 1.0
  *
  * @return     0 on success, -1 on failure
  */
@@ -204,15 +212,21 @@ int rc_servo_send_esc_pulse_normalized(int ch, float input);
  *             you are sure your ESCs support this then you may try this
  *             function.
  *
+ *             While the normal operating range for the normalized input is 0.0
+ *             to 1.0, inputs as low as -0.1 are allowed. This is because many
+ *             ESC firmwares such as BLHeli will still turn or chirp the motors
+ *             at 0.0 throttle, but will be stationary and still armed and awake
+ *             with throttle values slightly lower. We suggest using a throttle
+ *             of -0.1 for at least a second at the beginnig of your program to
+ *             wake the ESCs up from sleep but still keep the motors still.
+ *
  * @param[in]  ch     Channel to send signal to (1-8) or 0 to send to all
  *                    channels.
- * @param[in]  input  normalized position from 0 to 1.0
+ * @param[in]  input  normalized position from -0.1 to 1.0
  *
  * @return     0 on success, -1 on failure
  */
 int rc_servo_send_oneshot_pulse_normalized(int ch, float input);
-
-
 
 
 #ifdef __cplusplus
@@ -222,61 +236,3 @@ int rc_servo_send_oneshot_pulse_normalized(int ch, float input);
 #endif // RC_SERVO_H
 
 /** @}  end group Servo */
-
-
-/******************************************************************************
-* SERVO AND ESC
-*
-
-*@ int rc_enable_servo_power_rail() @ int rc_disable_servo_power_rail()
- *
- *
- *
-* @ int rc_servo_send_pulse_normalized(int ch, float input)
-* @ int rc_servo_send_pulse_normalized_all(float input)
-*
-* The normal operating range of hobby servos is usually +- 60 degrees of
-* rotation from the neutral position but they often work up to +- 90 degrees.
-* rc_servo_send_pulse_normalized(int ch, float input) will send a single pulse to
-* the selected channel. the normalized input should be between -1.5 and 1.5
-* corresponding to the following pulse width range and angle.
-*
-* input     width   angle
-* -1.5      600us  90 deg anticlockwise
-* -1.0      900us  60 deg anticlockwise
-*  0.0     1500us   0 deg neutral
-*  1.0     2100us  60 deg clockwise
-*  1.5     2400us  90 deg clockwise
-*
-* Note that all servos are different and do not necessarily allow the full
-* range of motion past +-1.0. DO NOT STALL SERVOS.
-*
-* @ int rc_send_esc_pulse_normalized(int ch, float input)
-* @ int rc_send_esc_pulse_normalized_all(float input)
-*
-* Brushless motor controllers (ESCs) for planes and multirotors are
-* unidirectional and lend themselves better to a normalized range from 0 to 1.
-* rc_send_esc_pulse_normalized(int ch, float input) also sends a single pulse
-* but the range is set for common ESCs
-*
-* input    width       power
-* -0.1      900      armed but idle
-* 0.0      1000us       0%   off
-* 0.5      1500us      50%  half-throttle
-* 1.0      2000us      100% full-throttle
-*
-* This assumes the ESCs have been calibrated for the 1000-2000us range. Use the
-* calibrate_escs example program to be sure.
-*
-* @ int rc_servo_send_pulse_us(int ch, int us)
-* @ int rc_servo_send_pulse_us_all(int us)
-*
-* The user may also elect to manually specify the exact pulse width in
-* in microseconds with rc_servo_send_pulse_us(int ch, int us). When using any of
-* these functions, be aware that they only send a single pulse to the servo
-* or ESC. Servos and ESCs typically require an update frequency of at least
-* 10hz to prevent timing out. The timing accuracy of this loop is not critical
-* and the user can choose to update at whatever frequency they wish.
-*
-* See the test_servos, sweep_servos, and calibrate_escs examples.
-******************************************************************************/

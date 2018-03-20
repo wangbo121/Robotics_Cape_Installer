@@ -4,19 +4,21 @@
  * Functions for reading the eQEP hardware-accelerated quadrature encoder
  * counters. This can be used for reading encoder channels 1-3 on the Robotics
  * Cape and BeagleBone Blue. Channel 4 is counted with the PRU, see
- * <rc/encoder_pru.h> to enable the 4th channel.
+ * <rc/encoder_pru.h> to use the 4th channel.
  *
  *
  * @author     James Strawson
  * @date       1/31/2018
  *
- * @addtogroup encoder @{
+ * @addtogroup Encoder_EQEP
+ * @ingroup Encoder
+ * @{
  */
 
 #ifndef RC_ENCODER_EQEP_H
 #define RC_ENCODER_EQEP_H
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -68,14 +70,10 @@ int rc_encoder_eqep_read(int ch);
 int rc_encoder_eqep_write(int ch, int pos);
 
 
-
-
-
-
-#ifdef  __cplusplus
+#ifdef __cplusplus
 }
 #endif
 
 #endif // RC_ENCODER_EQEP_H
 
-/** @}  end group encoder*/
+/** @}  end group Encoder_EQEP*/

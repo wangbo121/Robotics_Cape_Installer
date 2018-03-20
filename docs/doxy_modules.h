@@ -12,7 +12,7 @@
 
 
 /**
- * @defgroup   math
+ * @defgroup   Math
  *
  * @brief      C routines for linear algebra quaternion manipulation, and
  *             discrete time filters
@@ -25,10 +25,17 @@
  */
 
 /**
- * @defgroup   PRU
+ * @defgroup   Quadrature_Encoder
  *
- * @brief      Functions to start and stop the PRU as well as an interface for
- *             the 8 Servo/ESC channels and the 4th PRU-accelerated quadrature
- *             encoder counter.
+ * @brief      Functions for reading quadrature encoders.
+ *
+ *             Channels 1-3 on the Robotics Cape and BeagleBone Blue are counted
+ *             in hardware by the eQEP modules and are extremely resistant to
+ *             skipping steps and use negligible power. They can also be used
+ *             without root permissions. If necessary, encoder channel 4 on the
+ *             Robotics Cape and BeagleBone Blue can be used which uses PRU0 to
+ *             count steps so the ARM core doesn't have to do anything. It is
+ *             less robust than the dedicated hardware counters and requires
+ *             root permissions to use, please use channels 1-3 first.
  */
 

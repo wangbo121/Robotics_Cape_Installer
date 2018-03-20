@@ -1,9 +1,12 @@
-/*******************************************************************************
-* rc_test_encoders.c
-*
-* Prints out current encoder ticks for all 4 channels
-* channels 1-3 are counted using eQEP 0-2. Channel 4 is counted by PRU0
-*******************************************************************************/
+/*
+ * @file rc_test_encoders_eqep.c
+ *
+ * @example    rc_test_encoders_eqep
+ *
+ * Prints out current quadrature position for channels 1-3 which are counted
+ * using the eQEP modules. Channel 4 is counted by the PRU, test that with
+ * rc_test_encoders_pru instead.
+ */
 
 #include <stdio.h>
 #include <signal.h>

@@ -1,5 +1,5 @@
 /**
- * @file rc_pru.c
+ * @file servo.c
  *
  * @author     James Strawson
  * @date       3/7/2018
@@ -12,14 +12,14 @@
 #include <rc/gpio.h>
 #include <rc/servo.h>
 
-#define GPIO_POWER_PIN
-#define SERVO_PRU_CH	1
+#define GPIO_POWER_PIN	80 //gpio2.16 P8.36
+#define SERVO_PRU_CH	1 // PRU1
 #define SERVO_PRU_FW	"am335x-pru1-rc-servo-fw"
+#define PRU_SERVO_LOOP_INSTRUCTIONS 48 // instructions per PRU servo timer loop
 
 // pru shared memory pointer
 static unsigned int* shared_mem_32bit_ptr = NULL;
-
-int init_flag=0;
+static int init_flag=0;
 
 int rc_servo_init()
 {
@@ -51,6 +51,7 @@ int rc_servo_init()
 
 void rc_servo_cleanup()
 {
+	int i;
 	// zero out shared memory
 	if(shared_mem_32bit_ptr != NULL){
 		for(i=0;i<RC_SERVO_CH_MAX;i++) shared_mem_32bit_ptr[i]=0;
@@ -82,130 +83,82 @@ int rc_servo_power_rail_en(int en)
 
 int rc_servo_send_pulse_us(int ch, int us)
 {
+	int i, ret;
+	uint32_t num_loops;
 	// Sanity Checks
 	if(ch<0 || ch>RC_SERVO_CH_MAX){
 		fprintf(stderr,"ERROR: in rc_servo_send_pulse_us, channel argument must be between 0&%d\n", RC_SERVO_CH_MAX);
 		return -1;
 	}
-	if(shared_mem_32bit_ptr==NULL){
-		printf("ERROR: PRU servo Controller not initialized\n");
-		return -2;
-	}
-
-	// first check to make sure no pulse is currently being sent
-	if(shared_mem_32bit_ptr[ch-1] != 0){
-		printf("WARNING: Tried to start a new pulse amidst another\n");
+	if(init_flag==0){
+		printf("ERROR: in rc_servo_send_pulse_us, call rc_servo_init first\n");
 		return -1;
 	}
+	// calculate what to write to pru shared memory to set pulse width
+	num_loops = ((us*200.0)/PRU_SERVO_LOOP_INSTRUCTIONS);
 
-	// PRU runs at 200Mhz. find #loops needed
-	unsigned int num_loops = ((us*200.0)/PRU_SERVO_LOOP_INSTRUCTIONS);
-	// write to PRU shared memory
-	shared_mem_32bit_ptr[ch-1] = num_loops;
-	return 0;
-}
+	// for single channel requests, write once
+	if(ch!=0){
+		// first check to make sure no pulse is currently being sent
+		if(shared_mem_32bit_ptr[ch-1] != 0){
+			printf("ERROR: in rc_servo_send_pulse_us, tried to start a new pulse amidst another\n");
+			return -1;
+		}
+		// write to PRU shared memory
+		shared_mem_32bit_ptr[ch-1] = num_loops;
+		return 0;
+	}
 
-
-int rc_send_servo_pulse_us_all(int us){
-	int i, ret_ch;
-	int ret = 0;
-	for(i=1;i<=RC_SERVO_CH_MAX; i++){
-		ret_ch = rc_send_servo_pulse_us(i, us);
-		if(ret_ch == -2) return -2;
-		else if(ret_ch == -1) ret=-1;
+	// if all channels are requested, loop through them
+	ret=0;
+	for(i=RC_SERVO_CH_MIN;i<=RC_SERVO_CH_MAX;i++){
+		// first check to make sure no pulse is currently being sent
+		if(shared_mem_32bit_ptr[i-1] != 0){
+			printf("ERROR: in rc_servo_send_pulse_us, tried to start a new pulse amidst another on channel %d\n", i);
+			ret = -1;
+			continue;
+		}
+		// write to PRU shared memory
+		shared_mem_32bit_ptr[i-1] = num_loops;
 	}
 	return ret;
 }
 
-int rc_send_servo_pulse_normalized(int ch, float input){
-	if(ch<1 || ch>RC_SERVO_CH_MAX){
-		printf("ERROR: Servo Channel must be between 1&%d\n", RC_SERVO_CH_MAX);
-		return -1;
-	}
+
+int rc_servo_send_pulse_normalized(int ch, float input)
+{
+	int us;
 	if(input<-1.5 || input>1.5){
-		printf("ERROR: normalized input must be between -1 & 1\n");
+		fprintf(stderr,"ERROR in rc_servo_send_pulse_normalized, normalized input must be between -1.5 & 1.5\n");
 		return -1;
 	}
-	float micros = SERVO_MID_US + (input*(SERVO_NORMAL_RANGE/2));
-	return rc_send_servo_pulse_us(ch, micros);
+	// normal range is from 900 to 2100 for 120 degree servos
+	us = 1500 + (input*600);
+	return rc_servo_send_pulse_us(ch, us);
 }
 
 
-int rc_send_servo_pulse_normalized_all(float input){
-	int i, ret_ch;
-	int ret = 0;
-	for(i=1;i<=RC_SERVO_CH_MAX; i++){
-		ret_ch = rc_send_servo_pulse_normalized(i, input);
-		if(ret_ch == -2) return -2;
-		else if(ret_ch == -1) ret=-1;
-	}
-	return ret;
-}
 
-
-int rc_send_esc_pulse_normalized(int ch, float input){
-	if(ch < 1 || ch > RC_SERVO_CH_MAX){
-		printf("ERROR: Servo Channel must be between 1&%d\n", RC_SERVO_CH_MAX);
-		return -1;
-	}
+int rc_servo_send_esc_pulse_normalized(int ch, float input)
+{
+	int us;
 	if(input < -0.1 || input > 1.0){
-		printf("ERROR: normalized input must be between 0 & 1\n");
+		fprintf(stderr,"ERROR in rc_servo_send_esc_pulse_normalized, normalized input must be between -0.1 & 1.0\n");
 		return -1;
 	}
-	float micros = 1000.0 + (input*1000.0);
-	return rc_send_servo_pulse_us(ch, micros);
-}
-
-
-int rc_send_esc_pulse_normalized_all(float input){
-	int i, ret_ch;
-	int ret = 0;
-	for(i=1;i<=RC_SERVO_CH_MAX; i++){
-		ret_ch = rc_send_esc_pulse_normalized(i, input);
-		if(ret_ch == -2) return -2;
-		else if(ret_ch == -1) ret=-1;
-	}
-	return ret;
+	us = 1000 + (input*1000);
+	return rc_servo_send_pulse_us(ch, us);
 }
 
 
 
-int rc_send_oneshot_pulse_normalized(int ch, float input){
-	if(ch < 1 || ch > RC_SERVO_CH_MAX){
-		printf("ERROR: Servo Channel must be between 1&%d\n", RC_SERVO_CH_MAX);
-		return -1;
-	}
+int rc_servo_send_oneshot_pulse_normalized(int ch, float input)
+{
+	int us;
 	if(input < -0.1 || input > 1.0){
-		printf("ERROR: normalized input must be between 0 & 1\n");
+		fprintf(stderr,"ERROR in rc_servo_send_oneshot_pulse_normalized, normalized input must be between -0.1 & 1.0\n");
 		return -1;
 	}
-	float micros = 125.0 + (input*125.0);
-	return rc_send_servo_pulse_us(ch, micros);
+	us = 125 + (input*125);
+	return rc_servo_send_pulse_us(ch, us);
 }
-
-
-int rc_send_oneshot_pulse_normalized_all(float input){
-	int i, ret_ch;
-	int ret = 0;
-	for(i=1;i<=RC_SERVO_CH_MAX; i++){
-		ret_ch = rc_send_oneshot_pulse_normalized(i, input);
-		if(ret_ch == -2) return -2;
-		else if(ret_ch == -1) ret=-1;
-	}
-	return ret;
-}
-
-/*
-
-int get_pru_encoder_pos(){
-	if(shared_mem_32bit_ptr == NULL) return -1;
-	else return (int) shared_mem_32bit_ptr[CNT_OFFSET/4];
-}
-
-
-int set_pru_encoder_pos(int val){
-	if(shared_mem_32bit_ptr == NULL) return -1;
-	else shared_mem_32bit_ptr[CNT_OFFSET/4] = val;
-	return 0;
-}
-*/

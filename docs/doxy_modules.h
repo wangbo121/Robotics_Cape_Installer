@@ -24,3 +24,11 @@
  * @brief      C interface for Linux userspace IO
  */
 
+/**
+ * @defgroup   PRU
+ *
+ * @brief      Functions to start and stop the PRU as well as an interface for
+ *             the 8 Servo/ESC channels and the 4th PRU-accelerated quadrature
+ *             encoder counter.
+ */
+

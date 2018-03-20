@@ -11,7 +11,7 @@
 ; modification, are permitted provided that the following conditions are met:
 
 ; 1. Redistributions of source code must retain the above copyright notice, this
-;   list of conditions and the following disclaimer. 
+;   list of conditions and the following disclaimer.
 ; 2. Redistributions in binary form must reproduce the above copyright notice,
 ;   this list of conditions and the following disclaimer in the documentation
 ;   and/or other materials provided with the distribution.
@@ -28,19 +28,19 @@
 ; SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ; The views and conclusions contained in the software and documentation are those
-; of the authors and should not be interpreted as representing official policies, 
+; of the authors and should not be interpreted as representing official policies,
 ; either expressed or implied, of the FreeBSD Project.
 
 ;	.cdecls "robotics_cape_defs.h"
 
 ; PRU setup definitions
-	; .asg    C4,     CONST_SYSCFG         
-	.asg    C28,    CONST_PRUSHAREDRAM   
- 
+	; .asg    C4,     CONST_SYSCFG
+	.asg    C28,    CONST_PRUSHAREDRAM
+
 	.asg	0x22000,	PRU0_CTRL
 	.asg    0x24000,    PRU1_CTRL       ; page 19
 	; .asg    0x28,       CTPPR0          ; page 75
- 
+
 	.asg	0x000,	OWN_RAM
 	.asg	0x020,	OTHER_RAM
 	.asg    0x100,	SHARED_RAM       ; This is so prudebug can find it.
@@ -56,9 +56,9 @@
 	.asg	14,			A
 	.asg	15,			B
 
-increment	.macro 
+increment	.macro
 	LBCO	&r2, CONST_PRUSHAREDRAM, CNT_OFFSET, 4	; load existing counter from shared memory
-	ADD 	r2, r2, 1		; increment
+	ADD	r2, r2, 1		; increment
 	SBCO	&r2, CONST_PRUSHAREDRAM, CNT_OFFSET, 4	; write to shared memory
 	QBA CHECKPINS				; jump back to main CHECKPINS
 	.endm
@@ -74,53 +74,52 @@ decrement	.macro
 	.global start
 start:
 ; 	LBCO	&r0, CONST_SYSCFG, 4, 4		; Enable OCP master port
-; 	CLR 	r0, r0, 4					; Clear SYSCFG[STANDBY_INIT] to enable OCP master port
+; 	CLR	r0, r0, 4					; Clear SYSCFG[STANDBY_INIT] to enable OCP master port
 ; 	SBCO	&r0, CONST_SYSCFG, 4, 4
 ; Configure the programmable pointer register for PRU0 by setting c28_pointer[15:0]
 	; LDI     r0, SHARED_RAM              ; Set C28 to point to shared RAM
 	; LDI32   r1, PRU0_CTRL + CTPPR0		; Note we use beginning of shared ram unlike example which
 	; SBBO    &r0, r1, 0, 4				; has arbitrary 2048 offset
-	
-; initialize by setting current state of two channels		
-	MOV 	OLD, r31				
+
+; initialize by setting current state of two channels
+	MOV 	OLD, r31
 	zero	&r2, 4
 	SBCO	&r2, CONST_PRUSHAREDRAM, CNT_OFFSET, 4	; write 0 to shared memory
-	
+
 ; CHECKPINS here forever looking for pin changes
 CHECKPINS:
 	XOR EXOR, OLD, r31
 	QBBS A_CHANGED, EXOR, A	; Branch if CHA has toggled
 	QBBS B_CHANGED, EXOR, B ; Branch if CHB has toggled
 	QBA CHECKPINS
-	
-	
+
+
 A_CHANGED:
-	MOV OLD, r31			; update old value now that something changed
-	QBBC A_FELL,  CH, A 		; Branch if CHA has fallen
-	QBBS DECREMENT, CH, B		; A has risen, if B is HIGH, decrement
-	increment				; otherwise increment
-	
+	MOV OLD, r31		; update old value now that something changed
+	QBBC A_FELL,  CH, A	; Branch if CHA has fallen
+	QBBS DECREMENT, CH, B	; A has risen, if B is HIGH, decrement
+	increment		; otherwise increment
+
 B_CHANGED:
-	MOV OLD, r31			; update old value now that something changed
-	QBBC B_FELL,  CH, B 		; Branch if CHB has fallen
-	QBBS INCREMENT, CH, A		; ch B has risen, if A is HIGH, increment
-	decrement				; otherwise decrement
-	
-A_FELL:						; CHA has fallen, check CHB
-	QBBC DECREMENT, CH, B		; if CHB is clear (low) decrement
-	increment				; CHB must be high, so decrement counter
-	
-B_FELL:						; CHB has fallen, check CHA
-	QBBC INCREMENT, CH, A		; if CHA is clear (low) decrement
+	MOV OLD, r31		; update old value now that something changed
+	QBBC B_FELL,  CH, B	; Branch if CHB has fallen
+	QBBS INCREMENT, CH, A	; ch B has risen, if A is HIGH, increment
+	decrement		; otherwise decrement
+
+A_FELL:				; CHA has fallen, check CHB
+	QBBC DECREMENT, CH, B	; if CHB is clear (low) decrement
+	increment		; CHB must be high, so decrement counter
+
+B_FELL:				; CHB has fallen, check CHA
+	QBBC INCREMENT, CH, A	; if CHA is clear (low) decrement
 	decrement
 
-	
+
 DECREMENT:
 	decrement
 
 INCREMENT:
 	increment
 
-		
+
 	HALT	; we should never actually get here
-	

@@ -107,7 +107,7 @@ int rc_uart_write(int bus, char* data, int bytes);
  *
  * @return     Returns number of bytes actually read or -1 on error.
  */
-int rc_uart_read_bytes(int bus, char* buf, int byte);
+int rc_uart_read_bytes(int bus, char* buf, int bytes);
 
 /**
  * @brief      reads a line of characters ending in newline '\n'

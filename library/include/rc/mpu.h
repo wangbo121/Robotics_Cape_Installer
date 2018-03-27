@@ -454,13 +454,26 @@ int rc_mpu_calibrate_gyro_routine(rc_mpu_config_t conf);
 int rc_mpu_calibrate_mag_routine(rc_mpu_config_t conf);
 
 /**
+ * @brief      Runs accelerometer calibration routine
+ *
+ *             This should generally not be used by the user unless they
+ *             absolutely want to calibrate the accelerometer inside their own
+ *             program. Instead call the rc_calibrate_accel example program.
+ *
+ * @param[in]  conf  Config struct, only used to configure i2c bus and address.
+ *
+ * @return     0 on success, -1 on failure
+ */
+int rc_mpu_calibrate_accel_routine(rc_mpu_config_t conf);
+
+/**
  * @brief      Checks if a gyro calibration file is saved to disk
  *
  *             generally used to warn the user that they are running a program
  *             without calibration. Can also be used to decide if calibration
  *             should be done at the beginning of user's program.
  *
- * @return     0 on success, -1 on failure
+ * @return     1 if calibrated, 0 if not
  */
 int rc_mpu_is_gyro_calibrated();
 
@@ -471,9 +484,23 @@ int rc_mpu_is_gyro_calibrated();
  *             without calibration. Can also be used to decide if calibration
  *             should be done at the beginning of user's program.
  *
- * @return     { description_of_the_return_value }
+ * @return     1 if calibrated, 0 if not
  */
 int rc_mpu_is_mag_calibrated();
+
+/**
+ * @brief      Checks if an accelerometer calibration file is saved to disk
+ *
+ *             generally used to warn the user that they are running a program
+ *             without calibration. Can also be used to decide if calibration
+ *             should be done at the beginning of user's program.
+ *
+ * @return     1 if calibrated, 0 if not
+ */
+int rc_mpu_is_accel_calibrated();
+
+
+
 ///@} end calibration functions
 
 #ifdef  __cplusplus

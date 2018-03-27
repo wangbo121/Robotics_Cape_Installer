@@ -9,16 +9,6 @@ identical but the latter has a different register map
 #define RC_MPU_DEFS
 
 
-// Calibration File Locations
-#define CONFIG_DIRECTORY "/var/lib/roboticscape/"
-#define DSM_CAL_FILE	"dsm.cal"
-#define GYRO_CAL_FILE	"gyro.cal"
-#define MAG_CAL_FILE	"mag.cal"
-
-//I2C bus and address definitions for Robotics Cape
-#define RC_IMU_BUS		2
-#define RC_IMU_INTERRUPT_PIN	117 //gpio3.21 P9.25
-
 // internal DMP sample rate limits
 #define DMP_MAX_RATE		200
 #define DMP_MIN_RATE		4

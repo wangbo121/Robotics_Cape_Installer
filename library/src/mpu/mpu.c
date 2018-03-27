@@ -33,6 +33,16 @@
 #include "dmpKey.h"
 #include "dmpmap.h"
 
+// Calibration File Locations
+#define CONFIG_DIRECTORY	"/var/lib/roboticscape/"
+#define ACCEL_CAL_FILE		"accel.cal"
+#define GYRO_CAL_FILE		"gyro.cal"
+#define MAG_CAL_FILE		"mag.cal"
+
+//I2C bus and address definitions for Robotics Cape
+#define RC_IMU_BUS		2
+#define RC_IMU_INTERRUPT_PIN	117 //gpio3.21 P9.25
+
 // macros
 #define ARRAY_SIZE(array) sizeof(array)/sizeof(array[0])
 #define min(a, b)	((a < b) ? a : b)
@@ -65,9 +75,9 @@ static pthread_cond_t  read_condition	= PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t tap_mutex	= PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  tap_condition	= PTHREAD_COND_INITIALIZER;
 
-/*******************************************************************************
+/**
 *	Local variables
-*******************************************************************************/
+**/
 static rc_mpu_config_t config;
 static int bypass_en;
 static int dmp_en=0;
@@ -86,9 +96,9 @@ static rc_mpu_data_t* data_ptr;
 static int imu_shutdown_flag = 0;
 static rc_filter_t low_pass, high_pass; // for magnetometer Yaw filtering
 
-/*******************************************************************************
+/**
 * functions for internal use only
-*******************************************************************************/
+**/
 static int __reset_mpu();
 static int __check_who_am_i();
 static int __set_gyro_fsr(rc_mpu_gyro_fsr_t fsr, rc_mpu_data_t* data);
@@ -119,11 +129,7 @@ static void* __dmp_interrupt_handler(void* ptr);
 static int __read_dmp_fifo(rc_mpu_data_t* data);
 static int __data_fusion(rc_mpu_data_t* data);
 
-/*******************************************************************************
-* rc_mpu_config_t rc_mpu_default_config()
-*
-* returns reasonable default configuration values
-*******************************************************************************/
+
 rc_mpu_config_t rc_mpu_default_config()
 {
 	rc_mpu_config_t conf;
@@ -156,22 +162,14 @@ rc_mpu_config_t rc_mpu_default_config()
 	return conf;
 }
 
-/*******************************************************************************
-* int rc_mpu_set_config_to_default(*rc_mpu_config_t);
-*
-* resets an rc_mpu_config_t struct to default values
-*******************************************************************************/
+
 int rc_mpu_set_config_to_default(rc_mpu_config_t *conf)
 {
 	*conf = rc_mpu_default_config();
 	return 0;
 }
 
-/*******************************************************************************
-* int rc_mpu_initialize(rc_mpu_config_t conf)
-*
-* Set up the imu for one-shot sampling of sensor data by user
-*******************************************************************************/
+
 int rc_mpu_initialize(rc_mpu_data_t *data, rc_mpu_config_t conf)
 {
 	// update local copy of config struct with new values
@@ -257,12 +255,7 @@ int rc_mpu_initialize(rc_mpu_data_t *data, rc_mpu_config_t conf)
 	return 0;
 }
 
-/*******************************************************************************
-* int rc_mpu_read_accel(rc_mpu_data_t* data)
-*
-* Always reads in latest accelerometer values. The sensor
-* self-samples at 1khz and this retrieves the latest data.
-*******************************************************************************/
+
 int rc_mpu_read_accel(rc_mpu_data_t *data)
 {
 	// new register data stored here
@@ -284,12 +277,7 @@ int rc_mpu_read_accel(rc_mpu_data_t *data)
 	return 0;
 }
 
-/*******************************************************************************
-* int rc_mpu_read_gyro(rc_mpu_data_t* data)
-*
-* Always reads in latest gyroscope values. The sensor self-samples
-* at 1khz and this retrieves the latest data.
-*******************************************************************************/
+
 int rc_mpu_read_gyro(rc_mpu_data_t *data)
 {
 	// new register data stored here
@@ -311,13 +299,7 @@ int rc_mpu_read_gyro(rc_mpu_data_t *data)
 	return 0;
 }
 
-/*******************************************************************************
-* int rc_mpu_read_mag(rc_mpu_data_t* data)
-*
-* Checks if there is new magnetometer data and reads it in if true.
-* Magnetometer only updates at 100hz, if there is no new data then
-* the values in rc_mpu_data_t struct are left alone.
-*******************************************************************************/
+
 int rc_mpu_read_mag(rc_mpu_data_t* data)
 {
 	uint8_t raw[7];
@@ -393,11 +375,7 @@ int rc_mpu_read_mag(rc_mpu_data_t* data)
 	return 0;
 }
 
-/*******************************************************************************
-* int rc_mpu_read_temp(rc_mpu_data_t* data)
-*
-* reads the latest temperature of the imu.
-*******************************************************************************/
+
 int rc_mpu_read_temp(rc_mpu_data_t* data)
 {
 	uint16_t adc;
@@ -413,13 +391,7 @@ int rc_mpu_read_temp(rc_mpu_data_t* data)
 	return 0;
 }
 
-/*******************************************************************************
-* int __reset_mpu()
-*
-* sets the reset bit in the power management register which restores
-* the device to defualt settings. a 0.1 second wait is also included
-* to let the device compelete the reset process.
-*******************************************************************************/
+
 int __reset_mpu()
 {
 	// disable the interrupt to prevent it from doing things while we reset
@@ -439,9 +411,7 @@ int __reset_mpu()
 	return 0;
 }
 
-/*******************************************************************************
-* int __check_who_am_i()
-*******************************************************************************/
+
 int __check_who_am_i(){
 	uint8_t c;
 	//check the who am i register to make sure the chip is alive
@@ -460,11 +430,7 @@ int __check_who_am_i(){
 	return 0;
 }
 
-/*******************************************************************************
-* int __set_accel_fsr(rc_mpu_accel_fsr_t fsr, rc_mpu_data_t* data)
-*
-* set accelerometer full scale range and update conversion ratio
-*******************************************************************************/
+
 int __set_accel_fsr(rc_mpu_accel_fsr_t fsr, rc_mpu_data_t* data)
 {
 	uint8_t c;
@@ -493,11 +459,7 @@ int __set_accel_fsr(rc_mpu_accel_fsr_t fsr, rc_mpu_data_t* data)
 }
 
 
-/*******************************************************************************
-* int __set_gyro_fsr(rc_mpu_gyro_fsr_t fsr, rc_mpu_data_t* data)
-*
-* set gyro full scale range and update conversion ratio
-*******************************************************************************/
+
 int __set_gyro_fsr(rc_mpu_gyro_fsr_t fsr, rc_mpu_data_t* data)
 {
 	uint8_t c;
@@ -525,12 +487,7 @@ int __set_gyro_fsr(rc_mpu_gyro_fsr_t fsr, rc_mpu_data_t* data)
 	return rc_i2c_write_byte(config.i2c_bus, GYRO_CONFIG, c);
 }
 
-/*******************************************************************************
-* int __set_accel_dlpf(rc_mpu_accel_dlpf_t dlpf)
-*
-* Set accel low pass filter constants. This is the same register as
-* the sample rate. We set it at 1khz as 4khz is unnecessary.
-*******************************************************************************/
+
 int __set_accel_dlpf(rc_mpu_accel_dlpf_t dlpf)
 {
 	uint8_t c = ACCEL_FCHOICE_1KHZ | BIT_FIFO_SIZE_1024;
@@ -566,12 +523,7 @@ int __set_accel_dlpf(rc_mpu_accel_dlpf_t dlpf)
 	return rc_i2c_write_byte(config.i2c_bus, ACCEL_CONFIG_2, c);
 }
 
-/*******************************************************************************
-* int __set_gyro_dlpf(rc_mpu_gyro_dlpf_t dlpf)
-*
-* Set GYRO low pass filter constants. This is the same register as
-* the fifo overflow mode so we set it to keep the newest data too.
-*******************************************************************************/
+
 int __set_gyro_dlpf(rc_mpu_gyro_dlpf_t dlpf)
 {
 	uint8_t c = FIFO_MODE_REPLACE_OLD;
@@ -607,14 +559,7 @@ int __set_gyro_dlpf(rc_mpu_gyro_dlpf_t dlpf)
 	return rc_i2c_write_byte(config.i2c_bus, CONFIG, c);
 }
 
-/*******************************************************************************
-* int __init_magnetometer()
-*
-* configure the magnetometer for 100hz reads, also reads in the factory
-* sensitivity values into the global variables;
- * if cal mode is set to nonzero value it will not bother to load calibration
- * data from the disk
-*******************************************************************************/
+
 int __init_magnetometer(int cal_mode)
 {
 	uint8_t raw[3];	// calibration data stored here
@@ -676,11 +621,7 @@ int __init_magnetometer(int cal_mode)
 	return 0;
 }
 
-/*******************************************************************************
-* int __power_off_magnetometer()
-*
-* Make sure the magnetometer is off.
-*******************************************************************************/
+
 int __power_off_magnetometer()
 {
 	rc_i2c_set_device_address(config.i2c_bus, config.i2c_addr);
@@ -701,9 +642,7 @@ int __power_off_magnetometer()
 	return 0;
 }
 
-/*******************************************************************************
-* Power down the IMU
-*******************************************************************************/
+
 int rc_mpu_power_off()
 {
 	imu_shutdown_flag = 1;
@@ -752,9 +691,7 @@ int rc_mpu_power_off()
 	return 0;
 }
 
-/*******************************************************************************
-* Set up the IMU for DMP accelerated filtering and interrupts
-*******************************************************************************/
+
 int rc_mpu_initialize_dmp(rc_mpu_data_t *data, rc_mpu_config_t conf)
 {
 	uint8_t tmp;
@@ -983,7 +920,7 @@ int rc_mpu_initialize_dmp(rc_mpu_data_t *data, rc_mpu_config_t conf)
 	return 0;
 }
 
-/*******************************************************************************
+/**
  *  @brief      Write to the DMP memory.
  *  This function prevents I2C writes past the bank boundaries. The DMP memory
  *  is only accessible when the chip is awake.
@@ -991,9 +928,8 @@ int rc_mpu_initialize_dmp(rc_mpu_data_t *data, rc_mpu_config_t conf)
  *  @param[in]  length      Number of bytes to write.
  *  @param[in]  data        Bytes to write to memory.
  *  @return     0 if successful.
-*******************************************************************************/
-int __mpu_write_mem(unsigned short mem_addr, unsigned short length,\
-							unsigned char *data)
+**/
+int __mpu_write_mem(unsigned short mem_addr, unsigned short length, unsigned char *data)
 {
 	unsigned char tmp[2];
 	if (!data){
@@ -1014,7 +950,7 @@ int __mpu_write_mem(unsigned short mem_addr, unsigned short length,\
 	return 0;
 }
 
-/*******************************************************************************
+/**
  *  @brief      Read from the DMP memory.
  *  This function prevents I2C reads past the bank boundaries. The DMP memory
  *  is only accessible when the chip is awake.
@@ -1022,7 +958,7 @@ int __mpu_write_mem(unsigned short mem_addr, unsigned short length,\
  *  @param[in]  length      Number of bytes to read.
  *  @param[out] data        Bytes read from memory.
  *  @return     0 if successful.
-*******************************************************************************/
+**/
 int __mpu_read_mem(unsigned short mem_addr, unsigned short length, unsigned char *data)
 {
 	unsigned char tmp[2];
@@ -1044,11 +980,11 @@ int __mpu_read_mem(unsigned short mem_addr, unsigned short length, unsigned char
 	return 0;
 }
 
-/*******************************************************************************
+/**
 * int __dmp_load_motion_driver_firmware()
 *
 * loads pre-compiled firmware binary from invensense onto dmp
-*******************************************************************************/
+**/
 int __dmp_load_motion_driver_firmware()
 {
 	unsigned short ii;
@@ -1083,13 +1019,13 @@ int __dmp_load_motion_driver_firmware()
 	return 0;
 }
 
-/*******************************************************************************
+/**
  *  @brief      Push gyro and accel orientation to the DMP.
  *  The orientation is represented here as the output of
- *  @e inv_orientation_matrix_to_scalar.
+ *  @e __inv_orientation_matrix_to_scalar.
  *  @param[in]  orient  Gyro and accel orientation in body frame.
  *  @return     0 if successful.
-*******************************************************************************/
+**/
 int __dmp_set_orientation(unsigned short orient)
 {
 	unsigned char gyro_regs[3], accel_regs[3];
@@ -1139,12 +1075,12 @@ int __dmp_set_orientation(unsigned short orient)
 	return 0;
 }
 
-/*******************************************************************************
+/**
  *  @brief      Set DMP output rate.
  *  Only used when DMP is on.
  *  @param[in]  rate    Desired fifo rate (Hz).
  *  @return     0 if successful.
-*******************************************************************************/
+**/
 int __dmp_set_fifo_rate(unsigned short rate)
 {
 	const unsigned char regs_end[12] = {DINAFE, DINAF2, DINAAB,
@@ -1169,7 +1105,7 @@ int __dmp_set_fifo_rate(unsigned short rate)
 	return 0;
 }
 
-/*******************************************************************************
+/**
 * int __mpu_set_bypass(unsigned char bypass_on)
 *
 * configures the USER_CTRL and INT_PIN_CFG registers to turn on and off the
@@ -1178,7 +1114,7 @@ int __dmp_set_fifo_rate(unsigned short rate)
 * off after configuration and the MPU fetches magnetometer data automatically.
 * USER_CTRL - based on global variable dsp_en
 * INT_PIN_CFG based on requested bypass state
-*******************************************************************************/
+**/
 int __mpu_set_bypass(uint8_t bypass_on)
 {
 	uint8_t tmp = 0;
@@ -1215,14 +1151,14 @@ int __mpu_set_bypass(uint8_t bypass_on)
 	return 0;
 }
 
-/*******************************************************************************
+/**
 * int __dmp_enable_gyro_cal(unsigned char enable)
 *
 * Taken straight from the Invensense DMP code. This enabled the automatic gyro
 * calibration feature in the DMP. This this feature is fine for cell phones
 * but annoying in control systems we do not use it here and instead ask users
 * to run our own gyro_calibration routine.
-*******************************************************************************/
+**/
 int __dmp_enable_gyro_cal(unsigned char enable)
 {
 	if(enable){
@@ -1235,12 +1171,12 @@ int __dmp_enable_gyro_cal(unsigned char enable)
 	}
 }
 
-/*******************************************************************************
+/**
 * int __dmp_enable_6x_lp_quat(unsigned char enable)
 *
 * Taken straight from the Invensense DMP code. This enabled quaternion filtering
 * with accelerometer and gyro filtering.
-*******************************************************************************/
+**/
 int __dmp_enable_6x_lp_quat(unsigned char enable)
 {
 	unsigned char regs[4];
@@ -1257,12 +1193,12 @@ int __dmp_enable_6x_lp_quat(unsigned char enable)
 	return 0;
 }
 
-/*******************************************************************************
+/**
 * int __dmp_enable_lp_quat(unsigned char enable)
 *
 * sets the DMP to do gyro-only quaternion filtering. This is not actually used
 * here but remains as a vestige of the Invensense DMP code.
-*******************************************************************************/
+**/
 int __dmp_enable_lp_quat(unsigned char enable)
 {
 	unsigned char regs[4];
@@ -1279,14 +1215,14 @@ int __dmp_enable_lp_quat(unsigned char enable)
 	return 0;
 }
 
-/*******************************************************************************
+/**
 * int __mpu_reset_fifo()
 *
 * This is mostly from the Invensense open source codebase but modified to also
 * allow magnetometer data to come in through the FIFO. This just turns off the
 * interrupt, resets fifo and DMP, then starts them again. Used once while
 * initializing (probably no necessary) then again if the fifo gets too full.
-*******************************************************************************/
+**/
 int __mpu_reset_fifo(void)
 {
 	uint8_t data;
@@ -1322,13 +1258,17 @@ int __mpu_reset_fifo(void)
 	return 0;
 }
 
-/*******************************************************************************
-* int __dmp_set_interrupt_mode(unsigned char mode)
-*
-* This is from the Invensense open source DMP code. It configures the DMP
-* to trigger an interrupt either every sample or only on gestures. Here we
-* only ever configure for continuous sampling.
-*******************************************************************************/
+/**
+ * int __dmp_set_interrupt_mode(unsigned char mode)
+ *
+ * This is from the Invensense open source DMP code. It configures the DMP to
+ * trigger an interrupt either every sample or only on gestures. Here we only
+ * ever configure for continuous sampling.
+ *
+ * @param[in]  mode  The mode
+ *
+ * @return     { description_of_the_return_value }
+ */
 int __dmp_set_interrupt_mode(unsigned char mode)
 {
 	const unsigned char regs_continuous[11] =
@@ -1533,15 +1473,19 @@ int __dmp_set_shake_reject_timeout(unsigned short time)
 	return __mpu_write_mem(D_1_88,2,tmp);
 }
 
-/*******************************************************************************
-* int __dmp_enable_feature(unsigned short mask)
-*
-* This is mostly taken from the Invensense DMP code and serves to turn on and
-* off DMP features based on the feature mask. We modified to remove some
-* irrelevant features and set our own fifo-length variable. This probably
-* isn't necessary to remain in its current form as rc_mpu_initialize_dmp uses
-* a fixed set of features but we keep it as is since it works fine.
-*******************************************************************************/
+/**
+ * int __dmp_enable_feature(unsigned short mask)
+ *
+ * This is mostly taken from the Invensense DMP code and serves to turn on and
+ * off DMP features based on the feature mask. We modified to remove some
+ * irrelevant features and set our own fifo-length variable. This probably isn't
+ * necessary to remain in its current form as rc_mpu_initialize_dmp uses a fixed
+ * set of features but we keep it as is since it works fine.
+ *
+ * @param[in]  mask  The mask
+ *
+ * @return     0 on success, -1 on failure
+ */
 int __dmp_enable_feature(unsigned short mask)
 {
 	unsigned char tmp[10];
@@ -1667,12 +1611,14 @@ int __dmp_enable_feature(unsigned short mask)
 	}
 	return 0;
 }
-/*******************************************************************************
-* int __set_int_enable(unsigned char enable)
-*
-* This is a vestige of the invensense mpu open source code and is probably
-* not necessary but remains here anyway.
-*******************************************************************************/
+/**
+ * @brief      This is a vestige of the invensense mpu open source code and is
+ *             probably not necessary but remains here anyway.
+ *
+ * @param[in]  enable  The enable
+ *
+ * @return     0 on success, -1 on failure
+ */
 int __set_int_enable(unsigned char enable)
 {
 	unsigned char tmp;
@@ -1694,10 +1640,13 @@ int __set_int_enable(unsigned char enable)
 	return 0;
 }
 
-/*******************************************************************************
-int __mpu_set_sample_rate(int rate)
-Sets the clock rate divider for sensor sampling
-*******************************************************************************/
+/**
+ * @brief      Sets the clock rate divider for sensor sampling
+ *
+ * @param[in]  rate  The rate
+ *
+ * @return     0 on success, -1 on failure
+ */
 int __mpu_set_sample_rate(int rate)
 {
 	if(rate>1000 || rate<4){
@@ -1716,13 +1665,15 @@ int __mpu_set_sample_rate(int rate)
 	return 0;
 }
 
-/*******************************************************************************
-*  int __mpu_set_dmp_state(unsigned char enable)
-*
-* This turns on and off the DMP interrupt and resets the FIFO. This probably
-* isn't necessary as rc_mpu_initialize_dmp sets these registers but it remains
-* here as a vestige of the invensense open source dmp code.
-*******************************************************************************/
+/**
+ * This turns on and off the DMP interrupt and resets the FIFO. This probably
+ * isn't necessary as rc_mpu_initialize_dmp sets these registers but it remains
+ * here as a vestige of the invensense open source dmp code.
+ *
+ * @param[in]  enable  The enable
+ *
+ * @return     0 on success, -1 on failure
+ */
 int __mpu_set_dmp_state(unsigned char enable)
 {
 	if (enable) {
@@ -1746,15 +1697,16 @@ int __mpu_set_dmp_state(unsigned char enable)
 	return 0;
 }
 
-/*******************************************************************************
-* void* __dmp_interrupt_handler(void* ptr)
-*
-* Here is where the magic happens. This function runs as its own thread and
-* monitors the gpio pin config.gpio_interrupt_pin with the blocking function call
-* poll(). If a valid interrupt is received from the IMU then mark the timestamp,
-* read in the IMU data, and call the user-defined interrupt function if set.
-*******************************************************************************/
-void* __dmp_interrupt_handler( __unused void* ptr)
+/**
+ * Here is where the magic happens. This function runs as its own thread and
+ * monitors the gpio pin config.gpio_interrupt_pin with the blocking function
+ * call poll(). If a valid interrupt is received from the IMU then mark the
+ * timestamp, read in the IMU data, and call the user-defined interrupt function
+ * if set.
+ *
+ * @return     0 on success, -1 on failure
+ */
+void* __dmp_interrupt_handler(__attribute__ ((unused)) void* ptr)
 {
 	struct pollfd fdset[1];
 	int ret;
@@ -1868,11 +1820,13 @@ void* __dmp_interrupt_handler( __unused void* ptr)
 	return 0;
 }
 
-/*******************************************************************************
-* int rc_mpu_set_dmp_callback(void (*func)(void))
-*
-* sets a user function to be called when new data is read
-*******************************************************************************/
+/**
+ * sets a user function to be called when new data is read
+ *
+ * @param[in]  func  The function
+ *
+ * @return     0 on success, -1 on failure
+ */
 int rc_mpu_set_dmp_callback(void (*func)(void))
 {
 	if(func==NULL){
@@ -1894,15 +1848,18 @@ int rc_mpu_set_tap_callback(void (*func)(int dir, int cnt))
 }
 
 
-/*******************************************************************************
-* int __read_dmp_fifo(rc_mpu_data_t* data)
-*
-* Reads the FIFO buffer and populates the data struct. Here is where we see
-* bad/empty/double packets due to i2c bus errors and the IMU failing to have
-* data ready in time. enabling warnings in the config struct will let this
-* function print out warnings when these conditions are detected. If write
-* errors are detected then this function tries some i2c transfers a second time.
-*******************************************************************************/
+/**
+ * Reads the FIFO buffer and populates the data struct. Here is where we see
+ * bad/empty/double packets due to i2c bus errors and the IMU failing to have
+ * data ready in time. enabling warnings in the config struct will let this
+ * function print out warnings when these conditions are detected. If write
+ * errors are detected then this function tries some i2c transfers a second
+ * time.
+ *
+ * @param      data  The data pointer
+ *
+ * @return     0 on success, -1 on failure
+ */
 int __read_dmp_fifo(rc_mpu_data_t* data)
 {
 	unsigned char raw[MAX_FIFO_BUFFER];
@@ -2116,53 +2073,19 @@ int __read_dmp_fifo(rc_mpu_data_t* data)
 	else return -1;
 }
 
-
-// /*******************************************************************************
-// * We can detect a corrupted FIFO by monitoring the quaternion data and
-// * ensuring that the magnitude is always normalized to one. This
-// * shouldn't happen in normal operation, but if an I2C error occurs,
-// * the FIFO reads might become misaligned.
-// *
-// * Let's start by scaling down the quaternion data to avoid long long
-// * math.
-// *******************************************************************************/
-// int __check_quaternion_validity(unsigned char* raw, int i)
-// {
-// 	long quat_q14[4], quat[4], quat_mag_sq;
-// 	// parse the quaternion data from the buffer
-// 	quat[0] = ((long)raw[i+0] << 24) | ((long)raw[i+1] << 16) |
-// 		((long)raw[i+2] << 8) | raw[i+3];
-// 	quat[1] = ((long)raw[i+4] << 24) | ((long)raw[i+5] << 16) |
-// 		((long)raw[i+6] << 8) | raw[i+7];
-// 	quat[2] = ((long)raw[i+8] << 24) | ((long)raw[i+9] << 16) |
-// 		((long)raw[i+10] << 8) | raw[i+11];
-// 	quat[3] = ((long)raw[i+12] << 24) | ((long)raw[i+13] << 16) |
-// 		((long)raw[i+14] << 8) | raw[i+15];
-
-
-// 	quat_q14[0] = quat[0] >> 16;
-// 	quat_q14[1] = quat[1] >> 16;
-// 	quat_q14[2] = quat[2] >> 16;
-// 	quat_q14[3] = quat[3] >> 16;
-// 	quat_mag_sq = quat_q14[0] * quat_q14[0] + quat_q14[1] * quat_q14[1] +
-// 		quat_q14[2] * quat_q14[2] + quat_q14[3] * quat_q14[3];
-// 	if ((quat_mag_sq < QUAT_MAG_SQ_MIN) ||(quat_mag_sq > QUAT_MAG_SQ_MAX)){
-// 		return 0;
-// 	}
-// 	return 1;
-// }
-
-/*******************************************************************************
-* int __data_fusion(rc_mpu_data_t* data)
-*
-* This fuses the magnetometer data with the quaternion straight from the DMP
-* to correct the yaw heading to a compass heading. Much thanks to Pansenti for
-* open sourcing this routine. In addition to the Pansenti implementation I also
-* correct the magnetometer data for DMP orientation, initialize yaw with the
-* magnetometer to prevent initial rise time, and correct the yaw_mixing_factor
-* with the sample rate so the filter rise time remains constant with different
-* sample rates.
-*******************************************************************************/
+/**
+ * This fuses the magnetometer data with the quaternion straight from the DMP to
+ * correct the yaw heading to a compass heading. Much thanks to Pansenti for
+ * open sourcing this routine. In addition to the Pansenti implementation I also
+ * correct the magnetometer data for DMP orientation, initialize yaw with the
+ * magnetometer to prevent initial rise time, and correct the yaw_mixing_factor
+ * with the sample rate so the filter rise time remains constant with different
+ * sample rates.
+ *
+ * @param      data  The data pointer
+ *
+ * @return     0 on success, -1 on failure
+ */
 int __data_fusion(rc_mpu_data_t* data)
 {
 	float tilt_tb[3], tilt_q[4], mag_vec[3];
@@ -2297,12 +2220,14 @@ int __data_fusion(rc_mpu_data_t* data)
 	return 0;
 }
 
-/*******************************************************************************
-* int write_gyro_offsets_to_disk(int16_t offsets[3])
-*
-* Reads steady state gyro offsets from the disk and puts them in the IMU's
-* gyro offset register. If no calibration file exists then make a new one.
-*******************************************************************************/
+/**
+ * Reads steady state gyro offsets from the disk and puts them in the IMU's gyro
+ * offset register. If no calibration file exists then make a new one.
+ *
+ * @param      offsets  The offsets
+ *
+ * @return     0 on success, -1 on failure
+ */
 int write_gyro_offets_to_disk(int16_t offsets[3])
 {
 	FILE *cal;
@@ -2333,10 +2258,12 @@ int write_gyro_offets_to_disk(int16_t offsets[3])
 	return 0;
 }
 
-/*******************************************************************************
-* Loads steady state gyro offsets from the disk and puts them in the IMU's
-* gyro offset register. If no calibration file exists then make a new one.
-*******************************************************************************/
+/**
+ * Loads steady state gyro offsets from the disk and puts them in the IMU's gyro
+ * offset register. If no calibration file exists then make a new one.
+ *
+ * @return     0 on success, -1 on failure
+ */
 int __load_gyro_calibration()
 {
 	FILE *cal;
@@ -2394,12 +2321,7 @@ int __load_gyro_calibration()
 	return 0;
 }
 
-/*******************************************************************************
-* int rc_mpu_calibrate_gyro_routine()
-*
-* Initializes the IMU and samples the gyro for a short period to get steady
-* state gyro offsets. These offsets are then saved to disk for later use.
-*******************************************************************************/
+
 int rc_mpu_calibrate_gyro_routine(rc_mpu_config_t conf)
 {
 	uint8_t c, data[6];
@@ -2576,13 +2498,15 @@ COLLECT_DATA:
 	return 0;
 }
 
-/*******************************************************************************
-* unsigned short inv_row_2_scale(signed char row[])
-*
-* takes a single row on a rotation matrix and returns the associated scalar
-* for use by inv_orientation_matrix_to_scalar.
-*******************************************************************************/
-unsigned short inv_row_2_scale(signed char row[])
+/**
+ * takes a single row on a rotation matrix and returns the associated scalar for
+ * use by __inv_orientation_matrix_to_scalar.
+ *
+ * @param      row   The row
+ *
+ * @return     { description_of_the_return_value }
+ */
+unsigned short __inv_row_2_scale(signed char row[])
 {
 	unsigned short b;
 
@@ -2603,32 +2527,32 @@ unsigned short inv_row_2_scale(signed char row[])
 	return b;
 }
 
-/*******************************************************************************
-* unsigned short inv_orientation_matrix_to_scalar(signed char mtx[])
-*
-* This take in a rotation matrix and returns the corresponding 16 bit short
-* which is sent to the DMP to set the orientation. This function is actually
-* not used in normal operation and only served to retrieve the orientation
-* scalars once to populate the rc_imu_orientation_t enum during development.
-*******************************************************************************/
-unsigned short inv_orientation_matrix_to_scalar(signed char mtx[])
+/**
+ * This take in a rotation matrix and returns the corresponding 16 bit short
+ * which is sent to the DMP to set the orientation. This function is actually
+ * not used in normal operation and only served to retrieve the orientation
+ * scalars once to populate the rc_mpu_orientation_t enum during development.
+ *
+ * @param      mtx   The mtx
+ *
+ * @return     { description_of_the_return_value }
+ */
+unsigned short __inv_orientation_matrix_to_scalar(signed char mtx[])
 {
 	unsigned short scalar;
 
-	scalar = inv_row_2_scale(mtx);
-	scalar |= inv_row_2_scale(mtx + 3) << 3;
-	scalar |= inv_row_2_scale(mtx + 6) << 6;
+	scalar = __inv_row_2_scale(mtx);
+	scalar |= __inv_row_2_scale(mtx + 3) << 3;
+	scalar |= __inv_row_2_scale(mtx + 6) << 6;
 	return scalar;
 }
 
-/*******************************************************************************
-* void print_orientation_info()
-*
-* this function purely serves to print out orientation values and rotation
-* matrices which form the rc_imu_orientation_t enum. This is not called inside
-* this C file and is not exposed to the user.
-*******************************************************************************/
-void print_orientation_info()
+/**
+ * this function purely serves to print out orientation values and rotation
+ * matrices which form the rc_imu_orientation_t enum. This is not called inside
+ * this C file and is not exposed to the user.
+ */
+void __print_orientation_info()
 {
 	printf("\n");
 	//char mtx[9];
@@ -2636,61 +2560,52 @@ void print_orientation_info()
 
 	// Z-UP (identity matrix)
 	signed char zup[] = {1,0,0, 0,1,0, 0,0,1};
-	orient = inv_orientation_matrix_to_scalar(zup);
+	orient = __inv_orientation_matrix_to_scalar(zup);
 	printf("Z-UP: %d\n", orient);
 
 	// Z-down
 	signed char zdown[] = {-1,0,0, 0,1,0, 0,0,-1};
-	orient = inv_orientation_matrix_to_scalar(zdown);
+	orient = __inv_orientation_matrix_to_scalar(zdown);
 	printf("Z-down: %d\n", orient);
 
 	// X-up
 	signed char xup[] = {0,0,-1, 0,1,0, 1,0,0};
-	orient = inv_orientation_matrix_to_scalar(xup);
+	orient = __inv_orientation_matrix_to_scalar(xup);
 	printf("x-up: %d\n", orient);
 
 	// X-down
 	signed char xdown[] = {0,0,1, 0,1,0, -1,0,0};
-	orient = inv_orientation_matrix_to_scalar(xdown);
+	orient = __inv_orientation_matrix_to_scalar(xdown);
 	printf("x-down: %d\n", orient);
 
 	// Y-up
 	signed char yup[] = {1,0,0, 0,0,-1, 0,1,0};
-	orient = inv_orientation_matrix_to_scalar(yup);
+	orient = __inv_orientation_matrix_to_scalar(yup);
 	printf("y-up: %d\n", orient);
 
 	// Y-down
 	signed char ydown[] = {1,0,0, 0,0,1, 0,-1,0};
-	orient = inv_orientation_matrix_to_scalar(ydown);
+	orient = __inv_orientation_matrix_to_scalar(ydown);
 	printf("y-down: %d\n", orient);
 
 	// X-forward
 	signed char xforward[] = {0,-1,0, 1,0,0, 0,0,1};
-	orient = inv_orientation_matrix_to_scalar(xforward);
+	orient = __inv_orientation_matrix_to_scalar(xforward);
 	printf("x-forward: %d\n", orient);
 
 	// X-back
 	signed char xback[] = {0,1,0, -1,0,0, 0,0,1};
-	orient = inv_orientation_matrix_to_scalar(xback);
+	orient = __inv_orientation_matrix_to_scalar(xback);
 	printf("yx-back: %d\n", orient);
 }
 
 
-/*******************************************************************************
-* uint64_t rc_mpu_nanos_since_last_dmp_interrupt()
-*
-* Immediately after the IMU triggers an interrupt saying new data is ready,
-* a timestamp is logged in microseconds. The user's dmp_callback_function
-* will be called after all data has been read in through the I2C bus and
-* the user's rc_mpu_data_t struct has been populated. If the user wishes to see
-* how long it has been since that interrupt was received they may use this
-* function.
-*******************************************************************************/
 int64_t rc_mpu_nanos_since_last_dmp_interrupt()
 {
 	if(last_interrupt_timestamp_nanos==0) return -1;
 	return rc_nanos_since_epoch() - last_interrupt_timestamp_nanos;
 }
+
 
 int64_t rc_mpu_nanos_since_last_tap()
 {
@@ -2698,12 +2613,15 @@ int64_t rc_mpu_nanos_since_last_tap()
 	return rc_nanos_since_epoch() - last_tap_timestamp_nanos;
 }
 
-/*******************************************************************************
-* int __write_mag_cal_to_disk(float offsets[3], float scale[3])
-*
-* Reads steady state gyro offsets from the disk and puts them in the IMU's
-* gyro offset register. If no calibration file exists then make a new one.
-*******************************************************************************/
+/**
+ * Reads steady state gyro offsets from the disk and puts them in the IMU's gyro
+ * offset register. If no calibration file exists then make a new one.
+ *
+ * @param      offsets  The offsets
+ * @param      scale    The scale
+ *
+ * @return     0 on success, -1 on failure
+ */
 int __write_mag_cal_to_disk(float offsets[3], float scale[3])
 {
 	FILE *cal;
@@ -2742,12 +2660,12 @@ int __write_mag_cal_to_disk(float offsets[3], float scale[3])
 	return 0;
 }
 
-/*******************************************************************************
-* int __load_mag_calibration()
-*
-* Loads steady state magnetometer offsets and scale from the disk into global
-* variables for correction later by read_magnetometer and FIFO read functions
-*******************************************************************************/
+/**
+ * Loads steady state magnetometer offsets and scale from the disk into global
+ * variables for correction later by read_magnetometer and FIFO read functions
+ *
+ * @return     0 on success, -1 on failure
+ */
 int __load_mag_calibration()
 {
 	FILE *cal;
@@ -2801,15 +2719,7 @@ int __load_mag_calibration()
 	return 0;
 }
 
-/*******************************************************************************
-* int rc_mpu_calibrate_mag_routine()
-*
-* Initializes the IMU and samples the magnetometer until sufficient samples
-* have been collected from each octant. From there, fit an ellipse to the data
-* and save the correct offsets and scales to the disk which will later be
-* applied to correct the uncalibrated magnetometer data to map calibrated
-* field vectors to a sphere.
-*******************************************************************************/
+
 int rc_mpu_calibrate_mag_routine(rc_mpu_config_t conf)
 {
 	const int samples = 200;
@@ -2975,11 +2885,7 @@ int rc_mpu_calibrate_mag_routine(rc_mpu_config_t conf)
 	return 0;
 }
 
-/*******************************************************************************
-* int rc_mpu_is_gyro_calibrated()
-*
-* return 1 is a gyro calibration file exists, otherwise 0
-*******************************************************************************/
+
 int rc_mpu_is_gyro_calibrated()
 {
 	char file_path[100];
@@ -2989,11 +2895,7 @@ int rc_mpu_is_gyro_calibrated()
 	else return 0;
 }
 
-/*******************************************************************************
-* int rc_mpu_is_mag_calibrated()
-*
-* return 1 is a magnetometer calibration file exists, otherwise 0
-*******************************************************************************/
+
 int rc_mpu_is_mag_calibrated()
 {
 	char file_path[100];

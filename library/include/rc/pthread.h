@@ -4,7 +4,6 @@
  * @breif helper functions for managing pthreads and process niceness
  *
  * @author     James Strawson
- *
  * @date       1/19/2018
  *
  * @addtogroup pthread
@@ -15,7 +14,7 @@
 #ifndef RC_PTHREAD_H
 #define RC_PTHREAD_H
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -107,7 +106,7 @@ int rc_pthread_get_process_niceness();
 int rc_pthread_set_process_niceness(int niceness);
 
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 }
 #endif
 

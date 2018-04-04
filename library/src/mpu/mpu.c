@@ -34,14 +34,14 @@
 #include "dmpmap.h"
 
 // Calibration File Locations
-#define CONFIG_DIRECTORY	"/var/lib/roboticscape/"
-#define ACCEL_CAL_FILE		"accel.cal"
-#define GYRO_CAL_FILE		"gyro.cal"
-#define MAG_CAL_FILE		"mag.cal"
+#define CALIBRATION_DIR		"/var/lib/roboticscape/"
+#define ACCEL_CAL_FILE		"/var/lib/roboticscape/accel.cal"
+#define GYRO_CAL_FILE		"/var/lib/roboticscape/gyro.cal"
+#define MAG_CAL_FILE		"/var/lib/roboticscape/mag.cal"
 
 //I2C bus and address definitions for Robotics Cape
 #define RC_IMU_BUS		2
-#define RC_IMU_INTERRUPT_PIN	117 //gpio3.21 P9.25
+#define RC_IMU_INTERRUPT_PIN	117 // gpio3.21 P9.25
 
 // macros
 #define ARRAY_SIZE(array) sizeof(array)/sizeof(array[0])
@@ -89,6 +89,7 @@ static void (*tap_callback_func)(int dir, int cnt)=NULL;
 static float mag_factory_adjust[3];
 static float mag_offsets[3];
 static float mag_scales[3];
+static float accel_scales[3];
 static int last_read_successful;
 static uint64_t last_interrupt_timestamp_nanos;
 static uint64_t last_tap_timestamp_nanos;
@@ -124,7 +125,10 @@ static int __set_int_enable(unsigned char enable);
 static int __dmp_set_interrupt_mode(unsigned char mode);
 static int __load_gyro_calibration();
 static int __load_mag_calibration();
+static int __load_accel_calibration();
+static int __write_gyro_cal_to_disk(int16_t offsets[3]);
 static int __write_mag_cal_to_disk(float offsets[3], float scale[3]);
+static int __write_accel_cal_to_disk(float offsets[3], float scale[3]);
 static void* __dmp_interrupt_handler(void* ptr);
 static int __read_dmp_fifo(rc_mpu_data_t* data);
 static int __data_fusion(rc_mpu_data_t* data);
@@ -209,6 +213,11 @@ int rc_mpu_initialize(rc_mpu_data_t *data, rc_mpu_config_t conf)
 		rc_i2c_unlock_bus(config.i2c_bus);
 		return -1;
 	}
+	if(__load_accel_calibration()<0){
+		fprintf(stderr,"ERROR: failed to load accel calibration offsets\n");
+		rc_i2c_unlock_bus(config.i2c_bus);
+		return -1;
+	}
 
 	// Set sample rate = 1000/(1 + SMPLRT_DIV)
 	// here we use a divider of 0 for 1khz sample
@@ -242,6 +251,7 @@ int rc_mpu_initialize(rc_mpu_data_t *data, rc_mpu_config_t conf)
 
 	// initialize the magnetometer too if requested in config
 	if(conf.enable_magnetometer){
+		// start magnetometer NOT in cal mode (0)
 		if(__init_magnetometer(0)){
 			fprintf(stderr,"failed to initialize magnetometer\n");
 			rc_i2c_unlock_bus(config.i2c_bus);
@@ -270,10 +280,10 @@ int rc_mpu_read_accel(rc_mpu_data_t *data)
 	data->raw_accel[0] = (int16_t)(((uint16_t)raw[0]<<8)|raw[1]);
 	data->raw_accel[1] = (int16_t)(((uint16_t)raw[2]<<8)|raw[3]);
 	data->raw_accel[2] = (int16_t)(((uint16_t)raw[4]<<8)|raw[5]);
-	// Fill in real unit values
-	data->accel[0] = data->raw_accel[0] * data->accel_to_ms2;
-	data->accel[1] = data->raw_accel[1] * data->accel_to_ms2;
-	data->accel[2] = data->raw_accel[2] * data->accel_to_ms2;
+	// Fill in real unit values and apply calibration
+	data->accel[0] = data->raw_accel[0] * data->accel_to_ms2 / accel_scales[0];
+	data->accel[1] = data->raw_accel[1] * data->accel_to_ms2 / accel_scales[1];
+	data->accel[2] = data->raw_accel[2] * data->accel_to_ms2 / accel_scales[2];
 	return 0;
 }
 
@@ -357,17 +367,13 @@ int rc_mpu_read_mag(rc_mpu_data_t* data)
 
 	// multiply by the sensitivity adjustment and convert to units of uT micro
 	// Teslas. Also correct the coordinate system as someone in invensense
-	// thought it would be bright idea to have the magnetometer coordiate
+	// thought it would be bright idea to have the magnetometer coordinate
 	// system aligned differently than the accelerometer and gyro.... -__-
 	factory_cal_data[0] = adc[1] * mag_factory_adjust[1] * MAG_RAW_TO_uT;
 	factory_cal_data[1] = adc[0] * mag_factory_adjust[0] * MAG_RAW_TO_uT;
 	factory_cal_data[2] = -adc[2] * mag_factory_adjust[2] * MAG_RAW_TO_uT;
 
-	// now apply out own calibration, but first make sure we don't accidentally
-	// multiply by zero in case of uninitialized scale factors
-	if(mag_scales[0]==0.0) mag_scales[0]=1.0;
-	if(mag_scales[1]==0.0) mag_scales[1]=1.0;
-	if(mag_scales[2]==0.0) mag_scales[2]=1.0;
+	// now apply out own calibration,
 	data->mag[0] = (factory_cal_data[0]-mag_offsets[0])*mag_scales[0];
 	data->mag[1] = (factory_cal_data[1]-mag_offsets[1])*mag_scales[1];
 	data->mag[2] = (factory_cal_data[2]-mag_offsets[2])*mag_scales[2];
@@ -774,9 +780,14 @@ int rc_mpu_initialize_dmp(rc_mpu_data_t *data, rc_mpu_config_t conf)
 		rc_i2c_unlock_bus(config.i2c_bus);
 		return -1;
 	}
-	// load in gyro calibration offsets from disk
+	// load in calibration offsets from disk
 	if(__load_gyro_calibration()<0){
 		fprintf(stderr,"ERROR: failed to load gyro calibration offsets\n");
+		rc_i2c_unlock_bus(config.i2c_bus);
+		return -1;
+	}
+	if(__load_accel_calibration()<0){
+		fprintf(stderr,"ERROR: failed to load accel calibration offsets\n");
 		rc_i2c_unlock_bus(config.i2c_bus);
 		return -1;
 	}
@@ -2022,18 +2033,17 @@ int __read_dmp_fifo(rc_mpu_data_t* data)
 		data->raw_accel[2] = (int16_t)(((uint16_t)raw[i+4]<<8)|raw[i+5]);
 		i+=6;
 		// Fill in real unit values
-		data->accel[0] = data->raw_accel[0] * data->accel_to_ms2;
-		data->accel[1] = data->raw_accel[1] * data->accel_to_ms2;
-		data->accel[2] = data->raw_accel[2] * data->accel_to_ms2;
-
+		data->accel[0] = data->raw_accel[0] * data->accel_to_ms2 / accel_scales[0];
+		data->accel[1] = data->raw_accel[1] * data->accel_to_ms2 / accel_scales[1];
+		data->accel[2] = data->raw_accel[2] * data->accel_to_ms2 / accel_scales[2];
 
 		// Read gyro values and load into imu_data struct
 		// Turn the MSB and LSB into a signed 16-bit value
-
 		data->raw_gyro[0] = (int16_t)(((int16_t)raw[0+i]<<8)|raw[1+i]);
 		data->raw_gyro[1] = (int16_t)(((int16_t)raw[2+i]<<8)|raw[3+i]);
 		data->raw_gyro[2] = (int16_t)(((int16_t)raw[4+i]<<8)|raw[5+i]);
 		i+=6;
+
 		// Fill in real unit values
 		data->gyro[0] = data->raw_gyro[0] * data->gyro_to_degs;
 		data->gyro[1] = data->raw_gyro[1] * data->gyro_to_degs;
@@ -2220,43 +2230,7 @@ int __data_fusion(rc_mpu_data_t* data)
 	return 0;
 }
 
-/**
- * Reads steady state gyro offsets from the disk and puts them in the IMU's gyro
- * offset register. If no calibration file exists then make a new one.
- *
- * @param      offsets  The offsets
- *
- * @return     0 on success, -1 on failure
- */
-int write_gyro_offets_to_disk(int16_t offsets[3])
-{
-	FILE *cal;
-	char file_path[100];
 
-	// construct a new file path string and open for writing
-	strcpy(file_path, CONFIG_DIRECTORY);
-	strcat(file_path, GYRO_CAL_FILE);
-	cal = fopen(file_path, "w+");
-	// if opening for writing failed, the directory may not exist yet
-	if (cal == 0) {
-		mkdir(CONFIG_DIRECTORY, 0777);
-		cal = fopen(file_path, "w+");
-		if (cal == 0){
-			fprintf(stderr,"could not open config directory\n");
-			fprintf(stderr,CONFIG_DIRECTORY);
-			fprintf(stderr,"\n");
-			return -1;
-		}
-	}
-	// write to the file, close, and exit
-	if(fprintf(cal,"%d\n%d\n%d\n", offsets[0],offsets[1],offsets[2])<0){
-		printf("Failed to write gyro offsets to file\n");
-		fclose(cal);
-		return -1;
-	}
-	fclose(cal);
-	return 0;
-}
 
 /**
  * Loads steady state gyro offsets from the disk and puts them in the IMU's gyro
@@ -2266,17 +2240,13 @@ int write_gyro_offets_to_disk(int16_t offsets[3])
  */
 int __load_gyro_calibration()
 {
-	FILE *cal;
-	char file_path[100];
+	FILE* fd;
 	uint8_t data[6];
 	int x,y,z;
 
-	// construct a new file path string and open for reading
-	strcpy (file_path, CONFIG_DIRECTORY);
-	strcat (file_path, GYRO_CAL_FILE);
-	cal = fopen(file_path, "r");
+	fd = fopen(GYRO_CAL_FILE, "r");
 
-	if(cal==NULL){
+	if(fd==NULL){
 		// calibration file doesn't exist yet
 		fprintf(stderr,"WARNING: no gyro calibration data found\n");
 		fprintf(stderr,"Please run rc_mpu_calibrate_gyro\n\n");
@@ -2285,9 +2255,9 @@ int __load_gyro_calibration()
 		y = 0;
 		z = 0;
 	}
-	else {
+	else{
 		// read in data
-		if(fscanf(cal,"%d\n%d\n%d\n", &x,&y,&z)!=3){
+		if(fscanf(fd,"%d\n%d\n%d\n", &x,&y,&z)!=3){
 			fprintf(stderr,"ERROR loading gyro offsets, calibration file empty or malformed\n");
 			fprintf(stderr,"please run rc_mpu_calibrate_gyro to make a new calibration file\n");
 			fprintf(stderr,"using default offsets for now\n");
@@ -2296,7 +2266,7 @@ int __load_gyro_calibration()
 			y = 0;
 			z = 0;
 		}
-		fclose(cal);
+		fclose(fd);
 	}
 
 	#ifdef DEBUG
@@ -2320,6 +2290,265 @@ int __load_gyro_calibration()
 	}
 	return 0;
 }
+
+/**
+ * Loads steady state magnetometer offsets and scale from the disk into global
+ * variables for correction later by read_magnetometer and FIFO read functions
+ *
+ * @return     0 on success, -1 on failure
+ */
+int __load_mag_calibration()
+{
+	FILE *fd;
+	float x,y,z,sx,sy,sz;
+
+	fd = fopen(MAG_CAL_FILE, "r");
+
+	if(fd==NULL) {
+		// calibration file doesn't exist yet
+		fprintf(stderr,"WARNING: no magnetometer calibration data found\n");
+		fprintf(stderr,"Please run rc_mpu_calibrate_mag\n\n");
+		x=0.0;
+		y=0.0;
+		z=0.0;
+		sx=1.0;
+		sy=1.0;
+		sz=1.0;
+	}
+	else{ // read in data
+		if(fscanf(fd,"%f\n%f\n%f\n%f\n%f\n%f\n", &x,&y,&z,&sx,&sy,&sz)!=6){
+			fprintf(stderr,"ERROR loading magnetometer calibration file, empty or malformed\n");
+			fprintf(stderr,"please run rc_mpu_calibrate_mag to make a new calibration file\n");
+			fprintf(stderr,"using default offsets for now\n");
+			x=0.0;
+			y=0.0;
+			z=0.0;
+			sx=1.0;
+			sy=1.0;
+			sz=1.0;
+		}
+		fclose(fd);
+	}
+
+	#ifdef DEBUG
+	printf("magcal: %f %f %f %f %f %f\n", x,y,z,sx,sy,sz);
+	#endif
+
+	// write to global variables for use by rc_mpu_read_mag
+	mag_offsets[0]=x;
+	mag_offsets[1]=y;
+	mag_offsets[2]=z;
+	mag_scales[0]=sx;
+	mag_scales[1]=sy;
+	mag_scales[2]=sz;
+
+	fclose(fd);
+	return 0;
+}
+
+/**
+ * Loads steady state accel offsets from the disk and puts them in the IMU's
+ * accel offset register. If no calibration file exists then make a new one.
+ *
+ * @return     0 on success, -1 on failure
+ */
+int __load_accel_calibration()
+{
+	FILE* fd;
+	uint8_t data[6];
+	float x,y,z,sx,sy,sz; // offsets and scales in xyz
+	int16_t bias[3];
+
+	fd = fopen(ACCEL_CAL_FILE, "r");
+
+	if(fd==NULL){
+		// calibration file doesn't exist yet
+		fprintf(stderr,"WARNING: no accelerometer calibration data found\n");
+		fprintf(stderr,"Please run rc_mpu_calibrate_accel\n\n");
+		// use zero offsets
+		x = 0;
+		y = 0;
+		z = 0;
+		sx=1.0;
+		sy=1.0;
+		sz=1.0;
+	}
+	else{
+		// read in data
+		if(fscanf(fd,"%f\n%f\n%f\n%f\n%f\n%f\n", &x,&y,&z,&sx,&sy,&sz)!=6){
+			fprintf(stderr,"ERROR loading accel offsets, calibration file empty or malformed\n");
+			fprintf(stderr,"please run rc_mpu_calibrate_accel to make a new calibration file\n");
+			fprintf(stderr,"using default offsets for now\n");
+			// use zero offsets
+			x = 0;
+			y = 0;
+			z = 0;
+			sx=1.0;
+			sy=1.0;
+			sz=1.0;
+		}
+		fclose(fd);
+	}
+
+	#ifdef DEBUG
+	printf("accel offsets: %f %f %f\n", x, y, z);
+	printf("accel scales:  %f %f %f\n", sx, sy, sz);
+	#endif
+
+	// save scales globally
+	accel_scales[0]=sx;
+	accel_scales[1]=sy;
+	accel_scales[2]=sz;
+
+	// convert offset in g to bias register which is in 0.98-mg/bit
+	bias[0] = round(-x/0.00098);
+	bias[1] = round(-y/0.00098);
+	bias[2] = round(-z/0.00098);
+
+	// convert 16-bit bias to characters to write
+	data[0] = (bias[0] >> 8) & 0xFF;
+	data[1] = (bias[0])      & 0xFF;
+	data[2] = (bias[1] >> 8) & 0xFF;
+	data[3] = (bias[1])      & 0xFF;
+	data[4] = (bias[2] >> 8) & 0xFF;
+	data[5] = (bias[2])      & 0xFF;
+
+	// Push accel biases to hardware registers
+	if(rc_i2c_write_bytes(config.i2c_bus, XA_OFFSET_H, 6, &data[0])){
+		fprintf(stderr,"ERROR: failed to write accel offsets into IMU register\n");
+		return -1;
+	}
+	return 0;
+}
+
+
+/**
+ * Reads steady state gyro offsets from the disk and puts them in the IMU's gyro
+ * offset register. If no calibration file exists then make a new one.
+ *
+ * @param      offsets  The offsets
+ *
+ * @return     0 on success, -1 on failure
+ */
+int __write_gyro_cal_to_disk(int16_t offsets[3])
+{
+	FILE* fd;
+	int ret;
+
+	// make sure directory and calibration file exist and are writable first
+	ret = mkdir(CALIBRATION_DIR, 0777);
+	// error check, EEXIST is okay, we want directory to exist!
+	if(ret==-1 && errno!=EEXIST){
+		perror("ERROR in rc_mpu_calibrate_gyro_routine making calibration file directory");
+		return -1;
+	}
+
+	fd = fopen(GYRO_CAL_FILE, "w");
+	if(fd==NULL){
+		perror("ERROR in rc_mpu_calibrate_gyro_routine opening calibration file for writing");
+		return -1;
+	}
+
+	// write to the file, close, and exit
+	if(fprintf(fd,"%d\n%d\n%d\n", offsets[0],offsets[1],offsets[2])<0){
+		perror("ERROR in rc_mpu_calibrate_gyro_routine writing to file");
+		fclose(fd);
+		return -1;
+	}
+	fclose(fd);
+	return 0;
+}
+
+/**
+ * Writes magnetometer scale and offsets to disk. This is basically the origin
+ * and dimensions of the ellipse made during calibration.
+ *
+ * @param      offsets  The offsets
+ * @param      scale    The scale
+ *
+ * @return     0 on success, -1 on failure
+ */
+int __write_mag_cal_to_disk(float offsets[3], float scale[3])
+{
+	FILE* fd;
+	int ret;
+
+	// make sure directory and calibration file exist and are writable first
+	ret = mkdir(CALIBRATION_DIR, 0777);
+	// error check, EEXIST is okay, we want directory to exist!
+	if(ret==-1 && errno!=EEXIST){
+		perror("ERROR in rc_mpu_calibrate_mag_routine making calibration file directory");
+		return -1;
+	}
+
+	fd = fopen(MAG_CAL_FILE, "w");
+	if(fd==NULL){
+		perror("ERROR in rrc_mpu_calibrate_mag_routine opening calibration file for writing");
+		return -1;
+	}
+
+	// write to the file, close, and exit
+	ret = fprintf(fd,"%.10f\n%.10f\n%.10f\n%.10f\n%.10f\n%.10f\n",
+							offsets[0],
+							offsets[1],
+							offsets[2],
+							scale[0],
+							scale[1],
+							scale[2]);
+	if(ret<0){
+		perror("ERROR in rc_mpu_calibrate_mag_routine writing to file\n");
+		fclose(fd);
+		return -1;
+	}
+	fclose(fd);
+	return 0;
+}
+
+/**
+ * Writes accelerometer scale and offsets to disk. This is basically the origin
+ * and dimensions of the ellipse made during calibration.
+ *
+ * @param      offsets  The offsets in g
+ * @param      scale    The scales in g
+ *
+ * @return     0 on success, -1 on failure
+ */
+int __write_accel_cal_to_disk(float offsets[3], float scale[3])
+{
+	FILE* fd;
+	int ret;
+
+	// make sure directory and calibration file exist and are writable first
+	ret = mkdir(CALIBRATION_DIR, 0777);
+	// error check, EEXIST is okay, we want directory to exist!
+	if(ret==-1 && errno!=EEXIST){
+		perror("ERROR in rc_mpu_calibrate_accel_routine making calibration file directory");
+		return -1;
+	}
+
+	fd = fopen(ACCEL_CAL_FILE, "w");
+	if(fd==NULL){
+		perror("ERROR in rrc_mpu_calibrate_accel_routine opening calibration file for writing");
+		return -1;
+	}
+
+	// write to the file, close, and exit
+	ret = fprintf(fd,"%.10f\n%.10f\n%.10f\n%.10f\n%.10f\n%.10f\n",
+							offsets[0],
+							offsets[1],
+							offsets[2],
+							scale[0],
+							scale[1],
+							scale[2]);
+	if(ret<0){
+		perror("ERROR in rc_mpu_calibrate_accel_routine writing to file\n");
+		fclose(fd);
+		return -1;
+	}
+	fclose(fd);
+	return 0;
+}
+
 
 
 int rc_mpu_calibrate_gyro_routine(rc_mpu_config_t conf)
@@ -2491,249 +2720,21 @@ COLLECT_DATA:
 	printf("offsets: %d %d %d\n", offsets[0], offsets[1], offsets[2]);
 	#endif
 	// write to disk
-	if(write_gyro_offets_to_disk(offsets)<0){
+	if(__write_gyro_cal_to_disk(offsets)<0){
 		fprintf(stderr,"ERROR in rc_mpu_calibrate_gyro_routine, failed to write to disk\n");
 		return -1;
 	}
 	return 0;
 }
 
-/**
- * takes a single row on a rotation matrix and returns the associated scalar for
- * use by __inv_orientation_matrix_to_scalar.
- *
- * @param      row   The row
- *
- * @return     { description_of_the_return_value }
- */
-unsigned short __inv_row_2_scale(signed char row[])
-{
-	unsigned short b;
-
-	if (row[0] > 0)
-		b = 0;
-	else if (row[0] < 0)
-		b = 4;
-	else if (row[1] > 0)
-		b = 1;
-	else if (row[1] < 0)
-		b = 5;
-	else if (row[2] > 0)
-		b = 2;
-	else if (row[2] < 0)
-		b = 6;
-	else
-		b = 7;      // error
-	return b;
-}
-
-/**
- * This take in a rotation matrix and returns the corresponding 16 bit short
- * which is sent to the DMP to set the orientation. This function is actually
- * not used in normal operation and only served to retrieve the orientation
- * scalars once to populate the rc_mpu_orientation_t enum during development.
- *
- * @param      mtx   The mtx
- *
- * @return     { description_of_the_return_value }
- */
-unsigned short __inv_orientation_matrix_to_scalar(signed char mtx[])
-{
-	unsigned short scalar;
-
-	scalar = __inv_row_2_scale(mtx);
-	scalar |= __inv_row_2_scale(mtx + 3) << 3;
-	scalar |= __inv_row_2_scale(mtx + 6) << 6;
-	return scalar;
-}
-
-/**
- * this function purely serves to print out orientation values and rotation
- * matrices which form the rc_imu_orientation_t enum. This is not called inside
- * this C file and is not exposed to the user.
- */
-void __print_orientation_info()
-{
-	printf("\n");
-	//char mtx[9];
-	unsigned short orient;
-
-	// Z-UP (identity matrix)
-	signed char zup[] = {1,0,0, 0,1,0, 0,0,1};
-	orient = __inv_orientation_matrix_to_scalar(zup);
-	printf("Z-UP: %d\n", orient);
-
-	// Z-down
-	signed char zdown[] = {-1,0,0, 0,1,0, 0,0,-1};
-	orient = __inv_orientation_matrix_to_scalar(zdown);
-	printf("Z-down: %d\n", orient);
-
-	// X-up
-	signed char xup[] = {0,0,-1, 0,1,0, 1,0,0};
-	orient = __inv_orientation_matrix_to_scalar(xup);
-	printf("x-up: %d\n", orient);
-
-	// X-down
-	signed char xdown[] = {0,0,1, 0,1,0, -1,0,0};
-	orient = __inv_orientation_matrix_to_scalar(xdown);
-	printf("x-down: %d\n", orient);
-
-	// Y-up
-	signed char yup[] = {1,0,0, 0,0,-1, 0,1,0};
-	orient = __inv_orientation_matrix_to_scalar(yup);
-	printf("y-up: %d\n", orient);
-
-	// Y-down
-	signed char ydown[] = {1,0,0, 0,0,1, 0,-1,0};
-	orient = __inv_orientation_matrix_to_scalar(ydown);
-	printf("y-down: %d\n", orient);
-
-	// X-forward
-	signed char xforward[] = {0,-1,0, 1,0,0, 0,0,1};
-	orient = __inv_orientation_matrix_to_scalar(xforward);
-	printf("x-forward: %d\n", orient);
-
-	// X-back
-	signed char xback[] = {0,1,0, -1,0,0, 0,0,1};
-	orient = __inv_orientation_matrix_to_scalar(xback);
-	printf("yx-back: %d\n", orient);
-}
-
-
-int64_t rc_mpu_nanos_since_last_dmp_interrupt()
-{
-	if(last_interrupt_timestamp_nanos==0) return -1;
-	return rc_nanos_since_epoch() - last_interrupt_timestamp_nanos;
-}
-
-
-int64_t rc_mpu_nanos_since_last_tap()
-{
-	if(last_tap_timestamp_nanos==0) return -1;
-	return rc_nanos_since_epoch() - last_tap_timestamp_nanos;
-}
-
-/**
- * Reads steady state gyro offsets from the disk and puts them in the IMU's gyro
- * offset register. If no calibration file exists then make a new one.
- *
- * @param      offsets  The offsets
- * @param      scale    The scale
- *
- * @return     0 on success, -1 on failure
- */
-int __write_mag_cal_to_disk(float offsets[3], float scale[3])
-{
-	FILE *cal;
-	char file_path[100];
-	int ret;
-
-	// construct a new file path string and open for writing
-	strcpy(file_path, CONFIG_DIRECTORY);
-	strcat(file_path, MAG_CAL_FILE);
-	cal = fopen(file_path, "w+");
-	// if opening for writing failed, the directory may not exist yet
-	if (cal == 0) {
-		mkdir(CONFIG_DIRECTORY, 0777);
-		cal = fopen(file_path, "w+");
-		if (cal == 0){
-			fprintf(stderr,"could not open config directory\n");
-			fprintf(stderr, CONFIG_DIRECTORY);
-			fprintf(stderr,"\n");
-			return -1;
-		}
-	}
-
-	// write to the file, close, and exit
-	ret = fprintf(cal,"%f\n%f\n%f\n%f\n%f\n%f\n",	offsets[0],\
-							offsets[1],\
-							offsets[2],\
-							scale[0],\
-							scale[1],\
-							scale[2]);
-	if(ret<0){
-		fprintf(stderr,"Failed to write mag calibration to file\n");
-		fclose(cal);
-		return -1;
-	}
-	fclose(cal);
-	return 0;
-}
-
-/**
- * Loads steady state magnetometer offsets and scale from the disk into global
- * variables for correction later by read_magnetometer and FIFO read functions
- *
- * @return     0 on success, -1 on failure
- */
-int __load_mag_calibration()
-{
-	FILE *cal;
-	char file_path[100];
-	float x,y,z,sx,sy,sz;
-
-	// construct a new file path string and open for reading
-	strcpy (file_path, CONFIG_DIRECTORY);
-	strcat (file_path, MAG_CAL_FILE);
-	cal = fopen(file_path, "r");
-
-	if(cal==NULL) {
-		// calibration file doesn't exist yet
-		fprintf(stderr,"WARNING: no magnetometer calibration data found\n");
-		fprintf(stderr,"Please run rc_mpu_calibrate_mag\n\n");
-		mag_offsets[0]=0.0;
-		mag_offsets[1]=0.0;
-		mag_offsets[2]=0.0;
-		mag_scales[0]=1.0;
-		mag_scales[1]=1.0;
-		mag_scales[2]=1.0;
-		return 0;
-	}
-	else{ // read in data
-		if(fscanf(cal,"%f\n%f\n%f\n%f\n%f\n%f\n", &x,&y,&z,&sx,&sy,&sz)!=6){
-			fprintf(stderr,"ERROR loading magnetometer calibration file, empty or malformed\n");
-			fprintf(stderr,"please run rc_mpu_calibrate_mag to make a new calibration file\n");
-			fprintf(stderr,"using default offsets for now\n");
-			x=0.0;
-			y=0.0;
-			z=0.0;
-			sx=1.0;
-			sy=1.0;
-			sz=1.0;
-		}
-		fclose(cal);
-	}
-	#ifdef DEBUG
-	printf("magcal: %f %f %f %f %f %f\n", x,y,z,sx,sy,sz);
-	#endif
-
-	// write to global variables fo use by rc_mpu_read_mag
-	mag_offsets[0]=x;
-	mag_offsets[1]=y;
-	mag_offsets[2]=z;
-	mag_scales[0]=sx;
-	mag_scales[1]=sy;
-	mag_scales[2]=sz;
-
-	fclose(cal);
-	return 0;
-}
-
-
 int rc_mpu_calibrate_mag_routine(rc_mpu_config_t conf)
 {
+	int i;
+	float new_scale[3];
 	const int samples = 200;
 	const int sample_time_us = 12000000; // 12 seconds ()
 	const int loop_wait_us = sample_time_us/samples;
 	const int sample_rate_hz = 1000000/loop_wait_us;
-
-	int i;
-	float new_scale[3];
-
-	if(geteuid()!=0){
-		fprintf(stderr,"rc_mpu_calibrate_mag_routine must be run with root privileges\n");
-		return -1;
-	}
 
 	rc_matrix_t A = rc_matrix_empty();
 	rc_vector_t center = rc_vector_empty();
@@ -2856,9 +2857,7 @@ int rc_mpu_calibrate_mag_routine(rc_mpu_config_t conf)
 		lengths.d[1]>200 || lengths.d[1]<5 || \
 		lengths.d[2]>200 || lengths.d[2]<5){
 		fprintf(stderr,"WARNING: length of fitted ellipsoid out of bounds\n");
-		//rc_vector_free(&center);
-		//rc_vector_free(&lengths);
-		//return -1;
+		fprintf(stderr,"Saving suspicious calibration data anyway in case this is intentional\n");
 	}
 	// all seems well, calculate scaling factors to map ellipse lengths to
 	// a sphere of radius 70uT, this scale will later be multiplied by the
@@ -2888,23 +2887,135 @@ int rc_mpu_calibrate_mag_routine(rc_mpu_config_t conf)
 
 int rc_mpu_is_gyro_calibrated()
 {
-	char file_path[100];
-	strcpy (file_path, CONFIG_DIRECTORY);
-	strcat (file_path, GYRO_CAL_FILE);
-	if(!access(file_path, F_OK)) return 1;
+	if(!access(GYRO_CAL_FILE, F_OK)) return 1;
 	else return 0;
 }
-
 
 int rc_mpu_is_mag_calibrated()
 {
-	char file_path[100];
-	strcpy (file_path, CONFIG_DIRECTORY);
-	strcat (file_path, MAG_CAL_FILE);
-	if(!access(file_path, F_OK)) return 1;
+	if(!access(MAG_CAL_FILE, F_OK)) return 1;
 	else return 0;
 }
 
+int rc_mpu_is_accel_calibrated()
+{
+	if(!access(ACCEL_CAL_FILE, F_OK)) return 1;
+	else return 0;
+}
+
+
+/**
+ * takes a single row on a rotation matrix and returns the associated scalar for
+ * use by __inv_orientation_matrix_to_scalar.
+ *
+ * @param      row   The row
+ *
+ * @return     { description_of_the_return_value }
+ */
+unsigned short __inv_row_2_scale(signed char row[])
+{
+	unsigned short b;
+
+	if (row[0] > 0)
+		b = 0;
+	else if (row[0] < 0)
+		b = 4;
+	else if (row[1] > 0)
+		b = 1;
+	else if (row[1] < 0)
+		b = 5;
+	else if (row[2] > 0)
+		b = 2;
+	else if (row[2] < 0)
+		b = 6;
+	else
+		b = 7;      // error
+	return b;
+}
+
+/**
+ * This take in a rotation matrix and returns the corresponding 16 bit short
+ * which is sent to the DMP to set the orientation. This function is actually
+ * not used in normal operation and only served to retrieve the orientation
+ * scalars once to populate the rc_mpu_orientation_t enum during development.
+ *
+ * @param      mtx   The mtx
+ *
+ * @return     { description_of_the_return_value }
+ */
+unsigned short __inv_orientation_matrix_to_scalar(signed char mtx[])
+{
+	unsigned short scalar;
+
+	scalar = __inv_row_2_scale(mtx);
+	scalar |= __inv_row_2_scale(mtx + 3) << 3;
+	scalar |= __inv_row_2_scale(mtx + 6) << 6;
+	return scalar;
+}
+
+/**
+ * this function purely serves to print out orientation values and rotation
+ * matrices which form the rc_imu_orientation_t enum. This is not called inside
+ * this C file and is not exposed to the user.
+ */
+void __print_orientation_info()
+{
+	printf("\n");
+	//char mtx[9];
+	unsigned short orient;
+
+	// Z-UP (identity matrix)
+	signed char zup[] = {1,0,0, 0,1,0, 0,0,1};
+	orient = __inv_orientation_matrix_to_scalar(zup);
+	printf("Z-UP: %d\n", orient);
+
+	// Z-down
+	signed char zdown[] = {-1,0,0, 0,1,0, 0,0,-1};
+	orient = __inv_orientation_matrix_to_scalar(zdown);
+	printf("Z-down: %d\n", orient);
+
+	// X-up
+	signed char xup[] = {0,0,-1, 0,1,0, 1,0,0};
+	orient = __inv_orientation_matrix_to_scalar(xup);
+	printf("x-up: %d\n", orient);
+
+	// X-down
+	signed char xdown[] = {0,0,1, 0,1,0, -1,0,0};
+	orient = __inv_orientation_matrix_to_scalar(xdown);
+	printf("x-down: %d\n", orient);
+
+	// Y-up
+	signed char yup[] = {1,0,0, 0,0,-1, 0,1,0};
+	orient = __inv_orientation_matrix_to_scalar(yup);
+	printf("y-up: %d\n", orient);
+
+	// Y-down
+	signed char ydown[] = {1,0,0, 0,0,1, 0,-1,0};
+	orient = __inv_orientation_matrix_to_scalar(ydown);
+	printf("y-down: %d\n", orient);
+
+	// X-forward
+	signed char xforward[] = {0,-1,0, 1,0,0, 0,0,1};
+	orient = __inv_orientation_matrix_to_scalar(xforward);
+	printf("x-forward: %d\n", orient);
+
+	// X-back
+	signed char xback[] = {0,1,0, -1,0,0, 0,0,1};
+	orient = __inv_orientation_matrix_to_scalar(xback);
+	printf("yx-back: %d\n", orient);
+}
+
+int64_t rc_mpu_nanos_since_last_dmp_interrupt()
+{
+	if(last_interrupt_timestamp_nanos==0) return -1;
+	return rc_nanos_since_epoch() - last_interrupt_timestamp_nanos;
+}
+
+int64_t rc_mpu_nanos_since_last_tap()
+{
+	if(last_tap_timestamp_nanos==0) return -1;
+	return rc_nanos_since_epoch() - last_tap_timestamp_nanos;
+}
 
 int rc_mpu_block_until_dmp_data()
 {

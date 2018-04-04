@@ -5,44 +5,44 @@
  *
  * Demonstrates use of pru to control servos. This program
  * operates in 4 different modes. See the option list below for how to select an
- * operational mode from the command line.
+ * operational mode from the command line. In all modes the power rail is
+ * enabled to power the servos and the program will refuse to start unless a
+ * charged 2-cell LiPo is plugged into the while balance jack and detected by
+ * the ADC.
  *
- * SERVO: uses rc_send_servo_pulse_normalized() to set one or all servo
+ * NORM: uses rc_servo_send_pulse_normalized() to set one or all servo
  * positions to a value from -1.5 to 1.5 corresponding to their extended range.
  * -1 to 1 is considered the "safe" normal range as some servos will not go
  * beyond this. Test your servos incrementally to find their safe range.
  *
- * ESC: For unidirectional brushless motor speed controllers specify a range
- * from 0 to 1 as opposed to the bidirectional servo range. Be sure to run the
- * calibrate_esc example first to make sure the ESCs are calibrated to the right
- * pulse range. This mode uses the rc_send_esc_pulse_normalized() function.
- *
  * MICROSECONDS: You can also specify your own pulse width in microseconds (us).
- * This uses the rc_send_servo_pulse_us() function.
+ * This uses the rc_servo_send_pulse_us() function.
  *
  * SWEEP: This is intended to gently sweep a servo back and forth about the
  * center position. Specify a range limit as a command line argument as
- * described below. This also uses the rc_send_servo_pulse_normalized()
+ * described below. This also uses the rc_servo_send_pulse_normalized()
  * function.
  *
- * SERVO POWER RAIL: The robotics cape has a software-controlled 6V power
- * regulator allowing controlled steady power to drive servos. This can be
- * enabled at the command line with the -v option. It will not allow you to
- * enable the power rail when using the ESC mode as sending 6V into an ESC may
- * damage it. It is best to physically cut the center wire on ESC connections as
- * the BEC function is not needed when using the Robotics Cape.
- *
+ * RADIO: Uses a single user-selected channel of a DSM radio to control one
+ * or all of the servo channels. This is really just for testing, use the
+ * rc_dsm_passthrough example for controlling multiple servos, or better yet
+ * write an application-specific program for your robot. After all, this program
+ * is just for testing!!!!
  *
  * @author     James Strawson
  * @date       3/20/2018
  */
 
 #include <stdio.h>
+#include <getopt.h>
+#include <stdlib.h> // for atoi
+#include <signal.h>
 #include <rc/time.h>
 #include <rc/adc.h>
+#include <rc/dsm.h>
 #include <rc/servo.h>
 
-int running;
+static int running;
 
 typedef enum test_mode_t{
 	DISABLED,
@@ -61,10 +61,10 @@ void print_usage()
 	printf("                Otherwise all channels will be driven equally\n");
 	printf(" -f {hz}        Specify pulse frequency, otherwise 50hz is used\n");
 	printf(" -p {position}  Drive servo to a position between -1.5 & 1.5\n");
-	printf(" -u {width_us}  Send pulse width in microseconds (us)\n");
+	printf(" -w {width_us}  Send pulse width in microseconds (us)\n");
 	printf(" -s {limit}     Sweep servo back/forth between +- limit\n");
 	printf("                Limit can be between 0 & 1.5\n");
-	printf(" -r             Use DSM radio input to set position\n");
+	printf(" -r {ch}        Use DSM radio channel {ch} to control servo\n");
 	printf(" -h             Print this help messege \n\n");
 	printf("sample use to center servo channel 1:\n");
 	printf("   rc_test_servo -c 1 -p 0.0\n\n");
@@ -81,18 +81,17 @@ int main(int argc, char *argv[])
 {
 	float servo_pos=0;
 	float sweep_limit=0;
+	uint64_t dsm_nanos=0;
 	int width_us=0;
-	int ch=0;	// channel to test, 0 means all channels
+	int ch=0; // channel to test, 0 means all channels
 	float direction = 1; // switches between 1 & -1 in sweep mode
-	int c;
 	test_mode_t mode = DISABLED; //start mode disabled
 	int frequency_hz = 50; // default 50hz frequency to send pulses
-	int toggle = 0;
-	int i;
+	int i, c, radio_ch;
 
 	// parse arguments
 	opterr = 0;
-	while ((c = getopt(argc, argv, "c:f:vrp:e:u:s:h")) != -1){
+	while ((c = getopt(argc, argv, "c:f:p:w:s:r:h")) != -1){
 		switch (c){
 		// channel option
 		case 'c':
@@ -112,11 +111,6 @@ int main(int argc, char *argv[])
 			}
 			break;
 
-		// power rail option
-		case 'v':
-			power_en=1;
-			break;
-
 		// position option
 		case 'p':
 			// make sure only one mode in requested
@@ -129,26 +123,11 @@ int main(int argc, char *argv[])
 				fprintf(stderr,"Servo position must be from -1.5 to 1.5\n");
 				return -1;
 			}
-			mode = SERVO;
+			mode = NORM;
 			break;
 
-		// esc throttle option
-		case 'e':
-			// make sure only one mode in requested
-			if(mode!=DISABLED){
-				print_usage();
-				return -1;
-			}
-			esc_throttle = atof(optarg);
-			if(esc_throttle>1.0 || esc_throttle<0){
-				fprintf(stderr,"ESC throttle must be from 0 to 1\n");
-				return -1;
-			}
-			mode = ESC;
-			break;
-
-		// width in microsecons option
-		case 'u':
+		// width in microseconds option
+		case 'w':
 			// make sure only one mode in requested
 			if(mode!=DISABLED){
 				print_usage();
@@ -156,7 +135,7 @@ int main(int argc, char *argv[])
 			}
 			width_us = atof(optarg);
 			if(width_us<10){
-				printf("ERROR: Width in microseconds must be >10\n");
+				fprintf(stderr,"ERROR: Width in microseconds must be >10\n");
 				return -1;
 			}
 			mode = MICROSECONDS;
@@ -185,7 +164,11 @@ int main(int argc, char *argv[])
 				print_usage();
 				return -1;
 			}
-			if(rc_dsm_init_dsm()==-1) return -1;
+			radio_ch = atoi(optarg);
+			if(radio_ch<1 || radio_ch>RC_MAX_DSM_CHANNELS){
+				fprintf(stderr,"ERROR radio channel option must be between 1 and %d\n", RC_MAX_DSM_CHANNELS);
+				return -1;
+			}
 			mode = RADIO;
 			break;
 
@@ -218,34 +201,39 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 	if(rc_adc_battery_volt()<6.0){
-		fprintf(stderr,"ERROR: battery disconnected or insufficently charged to drive servos\n");
+		fprintf(stderr,"ERROR: battery disconnected or insufficiently charged to drive servos\n");
 		return -1;
 	}
 
 	// initialize PRU
 	if(rc_servo_init()) return -1;
 
-	// turn on power if option was given
-	if(power_en){
-		printf("Turning On 6V Servo Power Rail\n");
-		rc_servo_power_rail_en(1);
+	// start radio if necessary
+	if(mode==RADIO){
+		if(rc_dsm_init()==-1) return -1;
+		printf("Waiting for first DSM packet\n");
+		fflush(stdout);
+		while(rc_dsm_is_new_data()==0){
+			if(running==0) return 0;
+			rc_usleep(50000);
+		}
 	}
+
+	// turn on power
+	printf("Turning On 6V Servo Power Rail\n");
+	rc_servo_power_rail_en(1);
 
 	// print out what the program is doing
 	printf("\n");
 	if(ch==0) printf("Sending on all channels.\n");
 	else	  printf("Sending only to channel %d.\n", ch);
 	switch(mode){
-	case SERVO:
+	case NORM:
 		printf("Using rc_servo_send_pulse_normalized\n");
 		printf("Normalized Signal: %f  Pulse Frequency: %d\n", servo_pos, frequency_hz);
 		break;
-	case ESC:
-		printf("Using rc_servo_send_esc_pulse_normalized\n");
-		printf("Normalized Signal: %f  Pulse Frequency: %d\n", esc_throttle, frequency_hz);
-		break;
 	case MICROSECONDS:
-		printf("Using rc_servo_send_pulse_microseconds\n");
+		printf("Using rc_servo_send_pulse_us\n");
 		printf("Pulse_width: %d  Pulse Frequency: %d\n", width_us, frequency_hz);
 		break;
 	case SWEEP:
@@ -257,74 +245,23 @@ int main(int argc, char *argv[])
 		printf("Pulse Frequency: %d\n", frequency_hz);
 		break;
 	default:
+		// should never get here
 		fprintf(stderr,"ERROR invalid mode enum\n");
 		return -1;
 	}
 
-	if(mode==RADIO){
-		printf("Waiting for first DSM packet");
-		fflush(stdout);
-		while(rc_dsm_is_new_data()==0){
-			if(rc_get_state()==EXITING) return 0;
-			rc_usleep(50000);
-		}
-	}
 
-	// if driving an ESC, send throttle of 0 first
-	// otherwise it will go into calibration mode
-	if(mode==ESC || mode==RADIO){
-		printf("waking ESC up from idle\n");
-		for(i=0;i<frequency*3;i++){
-			rc_servo_send_esc_pulse_normalized(ch,0);
-			rc_usleep(frequency_hz/1000000);
-		}
-	}
 
 	// Main loop runs at frequency_hz
-	while(rc_get_state()!=EXITING){
+	while(running){
 		switch(mode){
 
-		case SERVO:
-			if(all) rc_send_servo_pulse_normalized_all(servo_pos);
-			else rc_send_servo_pulse_normalized(ch, servo_pos);
+		case NORM:
+			if(rc_servo_send_pulse_normalized(ch,servo_pos)==-1) return -1;
 			break;
-
-		case ESC:
-			if(all) rc_send_esc_pulse_normalized_all(esc_throttle);
-			else rc_send_esc_pulse_normalized(ch, esc_throttle);
-			break;
-
-		case RADIO:
-			if(rc_is_new_dsm_data()) {
-				printf("\r");// keep printing on same line
-				int channels = rc_num_dsm_channels();
-				// print framerate
-				printf("%d/", rc_get_dsm_resolution());
-				// print num channels in use
-				printf("%d-ch ", channels);
-				//print all channels
-				for(i=0;i<channels;i++) {
-					printf("%d:% 0.2f ", i+1, rc_get_dsm_ch_normalized(i+1));
-				}
-				fflush(stdout);
-				esc_throttle = (rc_get_dsm_ch_normalized(1) + 1.0) / 2.0;
-			} else {
-				printf("\rSeconds since last DSM packet: ");
-				printf("%lld ", rc_nanos_since_last_dsm_packet()/1000000000);
-				printf("                             ");
-				if(rc_nanos_since_last_dsm_packet() > 200000000) {
-					esc_throttle = 0;
-				}
-			}
-			fflush(stdout);
-			if(all) rc_send_esc_pulse_normalized_all(esc_throttle);
-			else rc_send_esc_pulse_normalized(ch, esc_throttle);
-			break;
-
 
 		case MICROSECONDS:
-			if(all) rc_send_servo_pulse_us_all(width_us);
-			else rc_send_servo_pulse_us(ch, width_us);
+			if(rc_servo_send_pulse_us(ch, width_us)==-1) return -1;
 			break;
 
 		case SWEEP:
@@ -342,24 +279,53 @@ int main(int argc, char *argv[])
 				direction = 1;
 			}
 			// send result
-			if(all) rc_send_servo_pulse_normalized_all(servo_pos);
-			else rc_send_servo_pulse_normalized(ch, servo_pos);
+			if(rc_servo_send_pulse_normalized(ch,servo_pos)==-1) return -1;
 			break;
+
+		case RADIO:
+			dsm_nanos = rc_dsm_nanos_since_last_packet();
+			if(dsm_nanos > 200000000){
+				printf("\rSeconds since last DSM packet: %lld              ", dsm_nanos/1000000000);
+			}
+			else{
+				servo_pos = rc_dsm_ch_normalized(radio_ch);
+				// bound the signal to the escs
+				if(servo_pos<-1.5) servo_pos=-1.5;
+				if(servo_pos>1.5) servo_pos=1.5;
+
+				// send pulse
+				if(rc_servo_send_pulse_normalized(ch,servo_pos)==-1) return -1;
+
+				// print info
+				printf("\r");// keep printing on same line
+				// print framerate
+				printf("%d/", rc_dsm_resolution());
+				// print num channels in use
+				printf("%d-ch ", rc_dsm_channels());
+				//print all channels
+				for(i=0; i<rc_dsm_channels(); i++){
+					printf("%d:% 0.2f ", i+1, rc_dsm_ch_normalized(i+1));
+				}
+			}
+			break;
+
+
+
 
 		default:
-			rc_set_state(EXITING); //should never actually get here
-			break;
+			fprintf(stderr,"ERROR unhandled mode\n");
+			return -1;
 		}
-
-		// blink green led
-		rc_set_led(GREEN, toggle);
-		toggle = !toggle;
 
 		// sleep roughly enough to maintain frequency_hz
 		rc_usleep(1000000/frequency_hz);
 	}
 
-	rc_cleanup();
+	rc_usleep(50000);
+	// turn off power rail and cleanup
+	rc_servo_power_rail_en(0);
+	rc_servo_cleanup();
+	rc_dsm_cleanup();
 	return 0;
 }
 

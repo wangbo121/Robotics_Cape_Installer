@@ -34,7 +34,7 @@
 #ifndef RC_MPU_H
 #define RC_MPU_H
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -57,7 +57,7 @@ extern "C" {
 #define DEG_TO_RAD	0.0174532925199	///< multiply to convert degrees to radians
 #define RAD_TO_DEG	57.295779513	///< multiply to convert radians to degrees
 #define MS2_TO_G	0.10197162129	///< multiply to convert m/s^2 to G
-#define G_TO_MS2	9.80665		///< multiply to convert G to m/s^2
+#define G_TO_MS2	9.80665		///< multiply to convert G to m/s^2, standard gravity definition
 
 /**
  * @brief      accelerometer full scale range options

@@ -32,10 +32,14 @@
  */
 
 #include <stdio.h>
+#include <getopt.h>
+#include <stdlib.h> // for atoi
+#include <signal.h>
 #include <rc/time.h>
+#include <rc/dsm.h>
 #include <rc/servo.h>
 
-int running;
+static int running;
 
 typedef enum test_mode_t{
 	DISABLED,
@@ -85,7 +89,6 @@ int main(int argc, char *argv[])
 	int c,i;		// misc variables
 	test_mode_t mode;	// current operating mode
 	uint64_t dsm_nanos;	// nanoseconds since last dsm packet
-	int radio_thr, radio_n_channels, radio_res;
 	int frequency_hz = 50; // default 50hz frequency to send pulses
 
 	// start with mode as disabled
@@ -185,8 +188,8 @@ int main(int argc, char *argv[])
 				return -1;
 			}
 			radio_ch = atoi(optarg);
-			if(radio_ch<1 || radio_ch>9){
-				fprintf(stderr,"ERROR radio channel option must be between 1 and 9\n");
+			if(radio_ch<1 || radio_ch>RC_MAX_DSM_CHANNELS){
+				fprintf(stderr,"ERROR radio channel option must be between 1 and %d\n", RC_MAX_DSM_CHANNELS);
 				return -1;
 			}
 			mode = RADIO;
@@ -215,18 +218,13 @@ int main(int argc, char *argv[])
 	signal(SIGINT, signal_handler);
 	running=1;
 
-	// start radio if necesary
-	if(mode==RADIO){
-		if(rc_dsm_init_dsm()==-1) return -1;
-	}
-
 	// initialize PRU and make sure power rail is OFF
 	if(rc_servo_init()) return -1;
 	rc_servo_power_rail_en(0);
 
 	// wait for radio to start
 	if(mode==RADIO){
-		if(rc_dsm_init_dsm()==-1) return -1;
+		if(rc_dsm_init()==-1) return -1;
 		printf("Waiting for first DSM packet\n");
 		fflush(stdout);
 		while(rc_dsm_is_new_data()==0){
@@ -238,7 +236,7 @@ int main(int argc, char *argv[])
 	// if driving an ESC, send throttle of 0 first
 	// otherwise it will go into calibration mode
 	printf("waking ESC up from idle for 3 seconds\n");
-	for(i=0;i<frequency*3;i++){
+	for(i=0;i<frequency_hz*3;i++){
 		rc_servo_send_esc_pulse_normalized(ch,-0.1);
 		rc_usleep(1000000/frequency_hz);
 	}
@@ -283,33 +281,30 @@ int main(int argc, char *argv[])
 				printf("\rSeconds since last DSM packet: %lld              ", dsm_nanos/1000000000);
 			}
 			else{
-				radio_thr = rc_get_dsm_ch_normalized(radio_ch);
+				thr = rc_dsm_ch_normalized(radio_ch);
 				// bound the signal to the escs
-				if(radio_thr<-0.1) thr=-0.1;
-				else if(radio_thr>1.0) thr=1.0;
-				else thr=radio_thr;
+				if(thr <-0.1) thr=-0.1;
+				if(thr > 1.0) thr=1.0;
+
 				// send pulse
 				if(oneshot_en) rc_servo_send_oneshot_pulse_normalized(ch,thr);
 				else rc_servo_send_esc_pulse_normalized(ch,thr);
 
 				// print info
-				radio_n_channels = rc_dsm_num_channels();
-				radio_res = rc_dsm_get_dsm_resolution();
 				printf("\r");// keep printing on same line
 				// print framerate
-				printf("%d/", rc_dsm_get_dsm_resolution());
+				printf("%d/", rc_dsm_resolution());
 				// print num channels in use
-				printf("%d-ch ", channels);
+				printf("%d-ch ", rc_dsm_channels());
 				//print all channels
-				for(i=0;i<channels;i++) {
-					printf("%d:% 0.2f ", i+1, rc_get_dsm_ch_normalized(i+1));
+				for(i=0; i<rc_dsm_channels(); i++){
+					printf("%d:% 0.2f ", i+1, rc_dsm_ch_normalized(i+1));
 				}
-
 			}
 			break;
 		default:
 			fprintf(stderr,"ERROR unhandled mode\n");
-			break;
+			return -1;
 		}
 
 		// sleep roughly enough to maintain frequency_hz

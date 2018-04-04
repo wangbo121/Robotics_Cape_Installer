@@ -628,7 +628,8 @@ int rc_dsm_channels()
 
 
 
-int rc_dsm_bind_routine(){
+int rc_dsm_bind_routine()
+{
 	int value;
 	int i;
 	char c = 0; // for reading user input
@@ -754,12 +755,9 @@ enter:
 	return 0;
 }
 
-/*******************************************************************************
-* int rc_calibrate_dsm_routine()
-*
 
-*******************************************************************************/
-int rc_dsm_calibrate_routine(){
+int rc_dsm_calibrate_routine()
+{
 	int i,ret;
 	FILE* fd;
 
@@ -772,12 +770,12 @@ int rc_dsm_calibrate_routine(){
 
 	// make sure directory and calibration file exist and are writable first
 	ret = mkdir(RC_DSM_CALIBRATION_DIR, 0777);
-	// error check, EEXIST is okay, we want direcotry to exist!
+	// error check, EEXIST is okay, we want directory to exist!
 	if(ret==-1 && errno!=EEXIST){
 		perror("ERROR in rc_dsm_calibration_routine making calibration file directory");
 		return -1;
 	}
-	fd = fopen(RC_DSM_CALIBRATION_FILE, "w");
+	fd = fopen(RC_DSM_CALIBRATION_FILE, "w+");
 	if(fd == NULL){
 		perror("ERROR in rc_dsm_calibration_routine opening calibration file for writing");
 		return -1;

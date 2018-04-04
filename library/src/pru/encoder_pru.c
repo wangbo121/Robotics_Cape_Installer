@@ -16,7 +16,7 @@
 #define ENCODER_MEM_OFFSET	8
 
 // pru shared memory pointer
-static unsigned int* shared_mem_32bit_ptr = NULL;
+static volatile unsigned int* shared_mem_32bit_ptr = NULL;
 static int init_flag=0;
 
 int rc_encoder_pru_init()

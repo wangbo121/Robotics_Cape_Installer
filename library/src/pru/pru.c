@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <fcntl.h>	// for open
 #include <unistd.h>	// for close
+#include <errno.h>
 #include <sys/mman.h>	// mmap
 #include <string.h>
 #include <rc/time.h>
@@ -31,7 +32,7 @@
 #define PRU_LEN		0x80000			// Length of PRU memory
 #define PRU_SHAREDMEM	0x10000			// Offset to shared memory
 
-static unsigned int* shared_mem_32bit_ptr = NULL;
+static volatile unsigned int* shared_mem_32bit_ptr = NULL;
 
 int rc_pru_start(int ch, const char* fw_name)
 {
@@ -57,31 +58,13 @@ int rc_pru_start(int ch, const char* fw_name)
 
 	if(rc_pru_stop(ch)) return -1;
 
-	// memset(buf,0,sizeof(buf));
-	// ret=read(fd, buf, sizeof(buf));
-	// if(ret==-1){
-	// 	perror("ERROR in rc_pru_start reading state");
-	// 	close(fd);
-	// 	return -1;
-	// }
-	// // if already running, warn and stop it
-	// if(strcmp(buf,"running\n")==0){
-	// 	fprintf(stderr,"WARNING: pru%d is already running, restarting with requested firmware\n",ch);
-	// 	if(rc_pru_stop(ch)==-1) return -1;
-	// }
-	// // if we read anything except "offline" there is something weird
-	// else if(strcmp(buf,"offline\n")){
-	// 	fprintf(stderr, "ERROR: remoteproc state should be 'offline' or 'running', read:%s\n", buf);
-	// 	close(fd);
-	// 	return -1;
-	// }
-
 	// write firmware title
 	if(ch==0)	fd=open(PRU0_FW, O_WRONLY);
 	else		fd=open(PRU1_FW, O_WRONLY);
 	if(fd==-1){
 		perror("ERROR in rc_pru_start opening remoteproc driver");
-		fprintf(stderr,"kernel probably too old\n");
+		if(errno==EPERM) fprintf(stderr,"need to be root to use the pru\n");
+		else fprintf(stderr,"kernel is probably too old\n");
 		return -1;
 	}
 	ret = write(fd, fw_name, strlen(fw_name));
@@ -108,7 +91,7 @@ int rc_pru_start(int ch, const char* fw_name)
 	}
 
 	// wait for it to start and make sure it's running
-	rc_usleep(100000);
+	rc_usleep(250000);
 	if(ch==0)	fd=open(PRU0_STATE, O_RDONLY);
 	else		fd=open(PRU1_STATE, O_RDONLY);
 	if(fd==-1){
@@ -133,10 +116,10 @@ int rc_pru_start(int ch, const char* fw_name)
 }
 
 
-uint32_t* rc_pru_shared_mem_ptr()
+volatile uint32_t* rc_pru_shared_mem_ptr()
 {
 	int fd;
-	uint32_t* map;
+	unsigned int* map;
 
 	// if already set, just return the pointer
 	if(shared_mem_32bit_ptr!=NULL){
@@ -151,7 +134,7 @@ uint32_t* rc_pru_shared_mem_ptr()
 	}
 
 	map = mmap(0, PRU_LEN, PROT_READ | PROT_WRITE, MAP_SHARED, fd, PRU_ADDR);
-	if(map==MAP_FAILED) {
+	if(map==MAP_FAILED){
 		perror("ERROR in rc_pru_shared_mem_ptr failed to map memory");
 		close(fd);
 		return NULL;

@@ -17,7 +17,7 @@
 #ifndef RC_MODEL_H
 #define RC_MODEL_H
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -38,7 +38,7 @@ typedef enum rc_model_t{
  *
  * @return     rc_model_t enum representation of model
  */
-rc_model_t rc_model_get();
+rc_model_t rc_model();
 
 /**
  * @brief      prints to the screen the human-readable version of the model name
@@ -46,7 +46,7 @@ rc_model_t rc_model_get();
 void rc_model_print();
 
 
-#ifdef  __cplusplus
+#ifdef __cplusplus
 }
 #endif
 

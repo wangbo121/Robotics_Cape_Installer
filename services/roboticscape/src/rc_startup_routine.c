@@ -9,8 +9,11 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <error.h>
 #include <unistd.h>
+#include <errno.h>
+#include <sys/stat.h> // for mkdir and chmod
+#include <sys/types.h> // for mkdir and chmod
+
 
 #include <rc/model.h>
 #include <rc/time.h>
@@ -20,6 +23,7 @@
 #define TIMEOUT_S 5
 #define START_LOG "/var/log/roboticscape/startup_log.txt"
 
+static int make_pid_directory();
 static int set_gpio_permissions();
 static int check_timeout();
 static int setup_pwm();
@@ -34,7 +38,7 @@ int main()
 	float time;
 	rc_model_t model;
 
-	// ensure root privaleges until we sort out udev rules
+	// ensure root privileges
 	if(geteuid()!=0){
 		fprintf(stderr,"ERROR: rc_startup_routine must be run as root\n");
 		return -1;
@@ -43,6 +47,9 @@ int main()
 	// log start time
 	start_us = rc_nanos_since_epoch()/1000 ;
 	system("echo start > " START_LOG);
+
+	// make pid directory with correct permissions
+	make_pid_directory();
 
 	// whitelist blue, black, and black wireless only when RC device tree is in use
 	model = rc_model_get();
@@ -58,7 +65,7 @@ int main()
 		if(check_timeout()){
 			system("echo 'timeout reached while waiting for gpio driver' >> " START_LOG);
 			fprintf(stderr,"timeout reached while waiting for gpio driver\n");
-		 	return -1;
+			return -1;
 		}
 		rc_usleep(500000);
 	}
@@ -94,31 +101,6 @@ int main()
 	sprintf(buf, "echo 'time (s): %4.1f PWM loaded' >> %s",time,START_LOG);
 	system(buf);
 
-	// //wait for pinmux
-	// while(rc_set_default_pinmux()!=0){
-	// 	if(check_timeout()){
-	// 		system("echo 'timeout reached while waiting for pinmux' >> " START_LOG);
-	// 		printf("timeout reached while waiting for pinmux\n");
-	// 	 	return 0;
-	// 	}
-	// 	rc_usleep(500000);
-	// }
-	// time = (rc_nanos_since_epoch()/1000-start_us)/1000000;
-	// sprintf(buf, "echo 'time (s): %4.1f pinmux driver loaded' >> %s",time,START_LOG);
-	// system(buf);
-
-	// //wait for pru
-	// while(restart_pru()!=0){
-	// 	if(check_timeout()){
-	// 		system("echo 'timeout reached while waiting for remoteproc pru' >> " START_LOG);
-	// 		printf("timeout reached while waiting for remoteproc pru\n");
-	// 	 	return 0;
-	// 	}
-	// 	rc_usleep(500000);
-	// }
-	// time = (rc_nanos_since_epoch()/1000-start_us)/1000000;
-	// sprintf(buf, "echo 'time (s): %4.1f PRU rproc loaded' >> %s",time,START_LOG);
-	// system(buf);
 
 	printf("roboticscape startup routine complete\n");
 	system("echo 'startup routine complete' >> " START_LOG);
@@ -230,7 +212,8 @@ int setup_pwm()
  *
  * @return     0 if loaded, otherwise -1
  */
-int check_eqep(){
+int check_eqep()
+{
 	if(access("/sys/devices/platform/ocp/48300000.epwmss/48300180.eqep/enabled", F_OK)) return -1;
 	if(access("/sys/devices/platform/ocp/48302000.epwmss/48302180.eqep/enabled", F_OK)) return -1;
 	if(access("/sys/devices/platform/ocp/48304000.epwmss/48304180.eqep/enabled", F_OK)) return -1;
@@ -238,3 +221,32 @@ int check_eqep(){
 }
 
 
+/**
+ * @brief      Makes a directory to put PID file in which has universal write
+ *             access so non-root users can still use PID files in /var/run.
+ *
+ *             /var/run/user doesn't work since user may run some programs as
+ *             root and others as debian user.
+ *
+ * @return     return 0 on success, -1 on failure
+ */
+int make_pid_directory()
+{
+	int ret;
+	// these permissions are not the final permissions of the directory as
+	// mkdir will mask it with umask on creation
+	ret = mkdir(RC_PID_DIR, 0777);
+	// error check, EEXIST is okay, we want directory to exist!
+	if(ret==-1 && errno!=EEXIST){
+		perror("ERROR making PID directory");
+		return -1;
+	}
+
+	// now set the correct permissions
+	ret = chmod(RC_PID_DIR, 0777);
+	if(ret==-1){
+		perror("ERROR setting permissions of PID directory");
+		return -1;
+	}
+	return 0;
+}

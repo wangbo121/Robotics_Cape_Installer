@@ -11,7 +11,7 @@ LIBDIR		:= ../../library/lib
 # file definitions for rules
 TARGET		:= $(BINDIR)/rc_startup_routine
 INCLUDES	:= $(shell find $(INCLUDEDIR) -name '*.h')
-SOURCES		:= $(SRCDIR)/rc_startup_routine.c
+SOURCES		:= $(shell find $(SRCDIR) -name '*.c')
 
 # compiler and linker binaries
 CC		:= gcc
@@ -50,7 +50,6 @@ clean:
 uninstall:
 	@$(RM) $(DESTDIR)/lib/systemd/system/$(SERVICE).service
 	@$(RM) $(DESTDIR)/etc/modules-load.d/roboticscape_modules.conf
-
 	@echo "roboticscape Service Uninstall Complete"
 
 

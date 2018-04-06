@@ -105,7 +105,7 @@ float rc_adc_read_volt(int ch)
 }
 
 
-float rc_adc_battery_volt()
+float rc_adc_batt()
 {
 	float v = (rc_adc_read_volt(LIPO_ADC_CH)*V_DIV_RATIO)+LIPO_OFFSET;
 	// add in a little dead zone to make disconnected battery easier to detect
@@ -114,7 +114,7 @@ float rc_adc_battery_volt()
 }
 
 
-float rc_adc_dc_jack_volt()
+float rc_adc_dc_jack()
 {
 	float v = (rc_adc_read_volt(DC_JACK_ADC_CH)*V_DIV_RATIO)+DC_JACK_OFFSET;
 	if(v<BATTERY_DEADZONE) v = 0.0;

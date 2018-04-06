@@ -2366,12 +2366,10 @@ int __load_accel_calibration()
 		fprintf(stderr,"WARNING: no accelerometer calibration data found\n");
 		fprintf(stderr,"Please run rc_mpu_calibrate_accel\n\n");
 		// use zero offsets
-		x = 0;
-		y = 0;
-		z = 0;
-		sx=1.0;
-		sy=1.0;
-		sz=1.0;
+		accel_scales[0]=1.0;
+		accel_scales[1]=1.0;
+		accel_scales[2]=1.0;
+		return 0;
 	}
 	else{
 		// read in data
@@ -2380,12 +2378,10 @@ int __load_accel_calibration()
 			fprintf(stderr,"please run rc_mpu_calibrate_accel to make a new calibration file\n");
 			fprintf(stderr,"using default offsets for now\n");
 			// use zero offsets
-			x = 0;
-			y = 0;
-			z = 0;
-			sx=1.0;
-			sy=1.0;
-			sz=1.0;
+			accel_scales[0]=1.0;
+			accel_scales[1]=1.0;
+			accel_scales[2]=1.0;
+			return 0;
 		}
 		fclose(fd);
 	}

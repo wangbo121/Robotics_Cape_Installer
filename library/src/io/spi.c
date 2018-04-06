@@ -35,7 +35,7 @@ static int speed[N_SS];		// speed in hz
 int rc_spi_init(int slave, int slave_mode, int bus_mode, int speed_hz)
 {
 	int bits = SPI_BITS_PER_WORD;
-	rc_model_t model = rc_model_get();
+	rc_model_t model = rc_model();
 
 	// sanity checks
 	if(slave!=1 && slave!=2){

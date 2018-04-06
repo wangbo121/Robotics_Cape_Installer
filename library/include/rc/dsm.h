@@ -27,6 +27,8 @@
 extern "C" {
 #endif
 
+#include <stdint.h> // for int64_t
+
 #define RC_MAX_DSM_CHANNELS	9
 #define RC_DSM_CALIBRATION_DIR	"/var/lib/roboticscape"
 #define RC_DSM_CALIBRATION_FILE	"/var/lib/roboticscape/dsm.cal"

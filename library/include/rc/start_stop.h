@@ -50,7 +50,8 @@
 extern "C" {
 #endif
 
-#define RC_PID_FILE "/var/run/robotics_cape.pid"
+#define RC_PID_DIR	"/var/run/roboticscape"
+#define RC_PID_FILE	"/var/run/roboticscape/roboticscape.pid"
 
 /**
  * @brief      process state variable, read and modify by rc_get_state,

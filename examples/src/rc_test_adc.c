@@ -38,12 +38,12 @@ int main(){
 		for(i=0;i<4;i++){
 			printf("%6.2f |", rc_adc_read_volt(i));
 		}
-		printf("%6.2f |", rc_adc_dc_jack_volt());
-		printf("%6.2f |", rc_adc_battery_volt());
+		printf("%6.2f |", rc_adc_dc_jack());
+		printf("%6.2f |", rc_adc_batt());
 		fflush(stdout);
 		rc_usleep(100000);
 	}
 
-
+	rc_adc_cleanup();
 	return 0;
 }

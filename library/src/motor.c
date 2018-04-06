@@ -48,7 +48,7 @@ int rc_motor_init()
 
 	// set pins for motor 1
 	// assign gpio pins for blue/black
-	if(rc_model_get()==BB_BLUE) dirA[0]=MDIR1A_BLUE;
+	if(rc_model()==BB_BLUE) dirA[0]=MDIR1A_BLUE;
 	else dirA[0] = MDIR1A;
 	dirB[0]=MDIR1B;
 	pwmss[0]=1;
@@ -56,7 +56,7 @@ int rc_motor_init()
 
 	// motor 2
 	dirA[1]=MDIR2A;
-	if(rc_model_get()==BB_BLUE) dirB[1]=MDIR2B_BLUE;
+	if(rc_model()==BB_BLUE) dirB[1]=MDIR2B_BLUE;
 	else dirB[1] = MDIR2B;
 	pwmss[1]=1;
 	pwmch[1]='B';

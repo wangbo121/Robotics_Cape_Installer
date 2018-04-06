@@ -50,7 +50,7 @@ static rc_model_t model_from_device_tree()
 }
 
 
-rc_model_t rc_model_get()
+rc_model_t rc_model()
 {
 	if(has_checked) return current_model;
 
@@ -62,7 +62,7 @@ rc_model_t rc_model_get()
 
 void rc_model_print()
 {
-	rc_model_t model = rc_model_get();
+	rc_model_t model = rc_model();
 
 	switch(model){
 	case(UNKNOWN_MODEL):

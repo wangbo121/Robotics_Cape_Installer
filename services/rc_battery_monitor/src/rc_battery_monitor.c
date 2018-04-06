@@ -1,37 +1,39 @@
-/******************************************************************************
-* rc_battery_monitor.c
-* James Strawson - 2017
-*
-* see README.txt for details
-*******************************************************************************/
+/**
+ * @file rc_battery_monitor.c
+ *
+ *
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <error.h>
 #include <unistd.h>
 #include <signal.h>
-#include <sys/file.h>
-#include "rc/adc/h"
-#include "rc/led.h"
-#include "rc/math/filter.h"
+
+#include <rc/adc.h>
+#include <rc/led.h>
+#include <rc/math/filter.h>
+#include <rc/math/ring_buffer.h>
+#include <rc/time.h>
+#include <rc/model.h>
 
 #define BATTPIDFILE	"/var/run/rc_battery_monitor.pid"
 #define START_BLINK_US	100000	// 0.1 second
 
 // Critical Max voltages of packs used to detect number of cells in pack
-#define CELL_MAX		4.25 // set higher than actual to detect num cells
-#define CELL_FULL		3.90 // minimum V to consider battery full
-#define CELL_75			3.80 // minimum V to consider battery 75%
-#define CELL_50			3.60 // minimum V to consider battery 50%
-#define CELL_25			3.25 // minimum V to consider battery 25%
-#define CELL_DIS		2.70 // Threshold for detecting disconnected battery
+#define CELL_MAX	4.25 // set 1er than actual to detect num cells
+#define CELL_FULL	3.90 // minimum V to consider battery full
+#define CELL_75		3.80 // minimum V to consider battery 75%
+#define CELL_50		3.60 // minimum V to consider battery 50%
+#define CELL_25		3.25 // minimum V to consider battery 25%
+#define CELL_DIS	2.70 // Threshold for detecting disconnected battery
 #define V_CHG_DETECT	4.15 // above this assume finished charging
 
 // filter
-#define LOOP_HZ				3
+#define LOOP_HZ		3
 #define LOOP_SLEEP_US	1000000/LOOP_HZ
-#define FITLER_SAMPLES		6		// average over 6 samples, 3 seconds
-#define STD_DEV_TOLERANCE	0.04	// above 0.1 definitely charging
+#define FITLER_SAMPLES	6	// average over 6 samples, 3 seconds
+#define STD_DEV_TOL	0.04	// above 0.1 definitely charging
 
 // functions
 static void illuminate_leds(int i);
@@ -42,13 +44,14 @@ static int startup_blink();
 // gpio designation for led 2 is a global variable
 // the rest are #defines but since led 2 is different on the blue
 // we must make it variable
-static int batt_led_2;
 static int running;
 
 
 // main() takes only one optional argument: -k (kill)
-int main(int argc, char *argv[]){
+int main(int argc, char *argv[])
+{
 	FILE* fd;
+	float new_v_pack, new_v_jack;
 	float v_pack;	// 2S pack voltage on JST XH 2S balance connector
 	float v_jack;	// could be dc power supply or another battery
 	float cell_voltage;	// cell voltage from either 2S or external pack
@@ -60,9 +63,9 @@ int main(int argc, char *argv[]){
 	int pack_connected = 0;
 	int c;
 	float stddev;
-	rc_bb_model_t model;
-	rc_filter_t filterB = rc_empty_filter();
-	rc_filter_t filterJ = rc_empty_filter(); // battery and jack filters
+	rc_model_t model;
+	rc_filter_t filterB = rc_filter_empty();
+	rc_filter_t filterJ = rc_filter_empty(); // battery and jack filters
 
 	// ensure root privaleges until we sort out udev rules
 	if(geteuid()!=0){
@@ -86,7 +89,7 @@ int main(int argc, char *argv[]){
 	}
 
 	// whitelist blue, black, and black wireless only when RC device tree is in use
-	model = rc_get_bb_model();
+	model = rc_model();
 	if(model!=BB_BLACK_RC && model!=BB_BLACK_W_RC && model!=BB_BLUE){
 		if(system("grep -q roboticscape /boot/uEnv.txt")!=0){
 			fprintf(stderr,"rc_battery_monitor can only run on BB Blue, Black, and Black wireless when the roboticscape device tree is in use.\n");
@@ -95,21 +98,20 @@ int main(int argc, char *argv[]){
 	}
 
 	// we only want one instance running, so check is a pid file already exists
-	if(access(PID_FILE, F_OK ) == 0){
+	if(access(BATTPIDFILE, F_OK ) == 0){
 		// PID file exists
-		fprintf(stderr,"WARNING:instance of rc_battery_monitor already running\n");
+		fprintf(stderr,"WARNING: instance of rc_battery_monitor already running\n");
 		fprintf(stderr,"Killing it and starting a new instance\n");
 		kill_existing_instance();
 	}
 
 	// make new pid file
-	fd = fopen(BATTPIDFILE, "ab");
-	if (fd < 0) {
-		fprintf(stderr,"ERROR in rc_battery_monitor, can't PID file for writing\n");
+	fd = fopen(BATTPIDFILE, "w");
+	if(fd==NULL){
+		perror("ERROR in rc_battery_monitor opening PID file");
 		return -1;
 	}
-	pid_t current_pid = getpid();
-	fprintf(fd,"%d",(int)current_pid);
+	fprintf(fd,"%d",(int)getpid());
 	fflush(fd);
 	fclose(fd);
 
@@ -117,36 +119,32 @@ int main(int argc, char *argv[]){
 	signal(SIGINT, shutdown_signal_handler);
 	signal(SIGTERM, shutdown_signal_handler);
 
-	// set led 2 gpio designation depending on board
-	if(rc_get_bb_model()==BB_BLUE) batt_led_2=BATT_LED_2_BLUE;
-	else batt_led_2=BATT_LED_2;
-
 	// set all pins off and check that is works
-	if(rc_led_set(BAT0,LOW)) return -1;
-	if(rc_led_set(BAT1,LOW)) return -1;
-	if(rc_led_set(BAT2,LOW)) return -1;
-	if(rc_led_set(BAT3,LOW)) return -1;
+	if(rc_led_set(RC_LED_BAT25,0)) return -1;
+	if(rc_led_set(RC_LED_BAT50,0)) return -1;
+	if(rc_led_set(RC_LED_BAT75,0)) return -1;
+	if(rc_led_set(RC_LED_BAT100,0)) return -1;
 
 	// enable adc
 	if(rc_adc_init()) return -1;
 
 	// start filters
-	v_pack = rc_battery_voltage();
-	if(rc_moving_average(&filterB, FITLER_SAMPLES, 1000000.0/LOOP_HZ)){
+	v_pack = rc_adc_batt();
+	if(rc_filter_moving_average(&filterB, FITLER_SAMPLES, 1000000.0/LOOP_HZ)){
 		fprintf(stderr,"ERROR in rc_battery_monitor, failed to create filter\n");
-		remove(PID_FILE);
+		remove(BATTPIDFILE);
 		return -1;
 	}
-	rc_prefill_filter_outputs(&filterB, v_pack);
-	rc_prefill_filter_inputs(&filterB, v_pack);
-	v_jack = rc_dc_jack_voltage();
-	if(rc_moving_average(&filterJ, FITLER_SAMPLES, 1000000.0/LOOP_HZ)){
+	rc_filter_prefill_outputs(&filterB, v_pack);
+	rc_filter_prefill_inputs(&filterB, v_pack);
+	v_jack = rc_adc_dc_jack();
+	if(rc_filter_moving_average(&filterJ, FITLER_SAMPLES, 1000000.0/LOOP_HZ)){
 		fprintf(stderr,"ERROR in rc_battery_monitor, failed to create filter\n");
-		remove(PID_FILE);
+		remove(BATTPIDFILE);
 		return -1;
 	}
-	rc_prefill_filter_outputs(&filterJ, v_jack);
-	rc_prefill_filter_inputs(&filterJ, v_jack);
+	rc_filter_prefill_outputs(&filterJ, v_jack);
+	rc_filter_prefill_inputs(&filterJ, v_jack);
 
 	// first decide if the user has called this from a terminal
 	// or as a startup process
@@ -157,48 +155,44 @@ int main(int argc, char *argv[]){
 
 	// blink for fun!
 	startup_blink();
-	startup_blink();
-	startup_blink();
 
 	// run until running==0 which is set by signal handler
 	running = 1;
 	while(running){
 		charging = 0;
 		// read in the voltage of the 2S pack and DC jack
-		new_v_pack = rc_battery_voltage();
-		new_v_jack = rc_dc_jack_voltage();
+		new_v_pack = rc_adc_batt();
+		new_v_jack = rc_adc_dc_jack();
 
 		if(new_v_pack==-1.0f || new_v_jack==-1.0f){
 			fprintf(stderr,"ERROR in rc_battery_monitor, can't read ADC voltages\n");
-			remove(PID_FILE);
+			remove(BATTPIDFILE);
 			return -1;
 		}
 
 		// if there is a sudden jump due to connection or disconnection
 		// reset the filters
 		if(abs(new_v_pack-v_pack)>2){
-			rc_prefill_filter_outputs(&filterB, new_v_pack);
-			rc_prefill_filter_inputs(&filterB, new_v_pack);
-			startup_blink();
+			rc_filter_prefill_outputs(&filterB, new_v_pack);
+			rc_filter_prefill_inputs(&filterB, new_v_pack);
 			startup_blink();
 		}
 		if(abs(new_v_jack-v_jack)>2){
-			rc_prefill_filter_outputs(&filterJ, new_v_jack);
-			rc_prefill_filter_inputs(&filterJ, new_v_jack);
-			startup_blink();
+			rc_filter_prefill_outputs(&filterJ, new_v_jack);
+			rc_filter_prefill_inputs(&filterJ, new_v_jack);
 			startup_blink();
 		}
 		// marge moving average filter
-		v_pack = rc_march_filter(&filterB, new_v_pack);
-		v_jack = rc_march_filter(&filterJ, new_v_jack);
+		v_pack = rc_filter_march(&filterB, new_v_pack);
+		v_jack = rc_filter_march(&filterJ, new_v_jack);
 
 
 		// find standard deviation of battery signal to determine
 		// if a 2S pack is connected or not
-		if(v_pack>(2*CELL_DIS)) stddev=rc_std_dev_ringbuf(filterB.in_buf);
+		if(v_pack>(2*CELL_DIS)) stddev = rc_ringbuf_std_dev(filterB.in_buf);
 
 		// check if 2s pack if connected
-		if(v_pack>(2*CELL_DIS) && stddev<STD_DEV_TOLERANCE){
+		if(v_pack>(2*CELL_DIS) && stddev<STD_DEV_TOL){
 			pack_connected = 1;
 			cell_voltage = v_pack/2;
 			num_cells = 2;
@@ -256,17 +250,16 @@ int main(int argc, char *argv[]){
 		}
 		// normal battery discharging
 		else if(cell_voltage<CELL_DIS)	illuminate_leds(0);
-		else if(cell_voltage>CELL_FULL) illuminate_leds(4);
-		else if(cell_voltage>CELL_75) 	illuminate_leds(3);
-		else if(cell_voltage>CELL_50) 	illuminate_leds(2);
-		else if(cell_voltage>CELL_25) 	illuminate_leds(1);
-		// battery is extremely low, blink all 4
+		else if(cell_voltage>CELL_FULL)	illuminate_leds(4);
+		else if(cell_voltage>CELL_75)	illuminate_leds(3);
+		else if(cell_voltage>CELL_50)	illuminate_leds(2);
+		else if(cell_voltage>CELL_25)	illuminate_leds(1);
+		// battery is extremely 0, blink all 4
 		else{
 			if(toggle) toggle=0;
 			else toggle=4;
 			illuminate_leds(toggle);
 		}
-
 		// sleepy time
 		rc_usleep(LOOP_SLEEP_US);
 	}
@@ -274,17 +267,20 @@ int main(int argc, char *argv[]){
 	// exit
 	illuminate_leds(0);
 	printf("battery_monitor exiting cleanly\n");
-	remove(PID_FILE);
+	remove(BATTPIDFILE);
 	return 0;
 }
 
 
-/*******************************************************************************
-* shutdown_signal_handler(int signo)
-*
-* catch Ctrl-C signal and change running state to 0 indicating exiting
-*******************************************************************************/
-void shutdown_signal_handler(int signo){
+/**
+ * shutdown_signal_handler(int signo)
+ *
+ * catch Ctrl-C signal and change running state to 0 indicating exiting
+ *
+ * @param[in]  signo  The signo
+ */
+void shutdown_signal_handler(int signo)
+{
 	if (signo == SIGINT){
 		running = 0;
  	}else if (signo == SIGTERM){
@@ -294,8 +290,14 @@ void shutdown_signal_handler(int signo){
 }
 
 
-
-int kill_existing_instance(){
+/**
+ * @brief      kill existing instance found in PID file
+ *
+ * @return     -1 if program had to be killed, 0 it wasn't running or exited
+ *             cleanly. 1 on weird behavior like malformed PID file.
+ */
+int kill_existing_instance()
+{
 	FILE* fd;
 	int old_pid, i;
 
@@ -341,39 +343,44 @@ int kill_existing_instance(){
 }
 
 
-
-void illuminate_leds(int i){
+/**
+ * @brief      illuminates 0-4 leds
+ *
+ * @param[in]  i     leds to illuminate, 0-4
+ */
+void illuminate_leds(int i)
+{
 	switch(i){
 	// now illuminate LEDs properly
 	case 4:
-		rc_led_set(BAT0,HIGH);
-		rc_led_set(BAT1,HIGH);
-		rc_led_set(BAT2,HIGH);
-		rc_led_set(BAT3,HIGH);
+		rc_led_set(RC_LED_BAT25,1);
+		rc_led_set(RC_LED_BAT50,1);
+		rc_led_set(RC_LED_BAT75,1);
+		rc_led_set(RC_LED_BAT100,1);
 		break;
 	case 3:
-		rc_led_set(BAT0,HIGH);
-		rc_led_set(BAT1,HIGH);
-		rc_led_set(BAT2,HIGH);
-		rc_led_set(BAT3,LOW);
+		rc_led_set(RC_LED_BAT25,1);
+		rc_led_set(RC_LED_BAT50,1);
+		rc_led_set(RC_LED_BAT75,1);
+		rc_led_set(RC_LED_BAT100,0);
 		break;
 	case 2:
-		rc_led_set(BAT0,HIGH);
-		rc_led_set(BAT1,HIGH);
-		rc_led_set(BAT2,LOW);
-		rc_led_set(BAT3,LOW);
+		rc_led_set(RC_LED_BAT25,1);
+		rc_led_set(RC_LED_BAT50,1);
+		rc_led_set(RC_LED_BAT75,0);
+		rc_led_set(RC_LED_BAT100,0);
 		break;
 	case 1:
-		rc_led_set(BAT0,HIGH);
-		rc_led_set(BAT1,LOW);
-		rc_led_set(BAT2,LOW);
-		rc_led_set(BAT3,LOW);
+		rc_led_set(RC_LED_BAT25,1);
+		rc_led_set(RC_LED_BAT50,0);
+		rc_led_set(RC_LED_BAT75,0);
+		rc_led_set(RC_LED_BAT100,0);
 		break;
 	case 0:
-		rc_led_set(BAT0,LOW);
-		rc_led_set(BAT1,LOW);
-		rc_led_set(BAT2,LOW);
-		rc_led_set(BAT3,LOW);
+		rc_led_set(RC_LED_BAT25,0);
+		rc_led_set(RC_LED_BAT50,0);
+		rc_led_set(RC_LED_BAT75,0);
+		rc_led_set(RC_LED_BAT100,0);
 		break;
 	default:
 		fprintf(stderr,"ERROR in rc_battery_monitor, can only illuminate between 0 and 4 leds\n");
@@ -384,33 +391,47 @@ void illuminate_leds(int i){
 }
 
 
-static int startup_blink(){
+/**
+ * @brief      slides one illuinated LED state from bottom to top and back again.
+ *
+ * @return     0 on success, -1 on failure
+ */
+static int startup_blink()
+{
 	// start with lighting up the bottom led
-	// also take this chance to catch
-	rc_led_set(BAT0,HIGH);
-	rc_led_set(BAT1,LOW);
-	rc_led_set(BAT2,LOW);
-	rc_led_set(BAT3,LOW);
+	rc_led_set(RC_LED_BAT25,1);
+	rc_led_set(RC_LED_BAT50,0);
+	rc_led_set(RC_LED_BAT75,0);
+	rc_led_set(RC_LED_BAT100,0);
 	rc_usleep(START_BLINK_US);
-	rc_led_set(BAT0,LOW);
-	rc_led_set(BAT1,HIGH);
+
+	rc_led_set(RC_LED_BAT25,0);
+	rc_led_set(RC_LED_BAT50,1);
 	rc_usleep(START_BLINK_US);
-	rc_led_set(BAT1,LOW);
-	rc_led_set(BAT2,HIGH);
+
+	rc_led_set(RC_LED_BAT50,0);
+	rc_led_set(RC_LED_BAT75,1);
 	rc_usleep(START_BLINK_US);
-	rc_led_set(BAT2,LOW);
-	rc_led_set(BAT3,HIGH);
+
+	rc_led_set(RC_LED_BAT75,0);
+	rc_led_set(RC_LED_BAT100,1);
 	rc_usleep(START_BLINK_US);
-	rc_led_set(BAT3,LOW);
-	rc_led_set(BAT2,HIGH);
+
+	rc_led_set(RC_LED_BAT100,0);
+	rc_led_set(RC_LED_BAT75,1);
 	rc_usleep(START_BLINK_US);
-	rc_led_set(BAT2,LOW);
-	rc_led_set(BAT1,HIGH);
+
+	rc_led_set(RC_LED_BAT75,0);
+	rc_led_set(RC_LED_BAT50,1);
 	rc_usleep(START_BLINK_US);
-	rc_led_set(BAT1,LOW);
-	rc_led_set(BAT0,HIGH);
+
+	rc_led_set(RC_LED_BAT50,0);
+	rc_led_set(RC_LED_BAT25,1);
 	rc_usleep(START_BLINK_US);
-	rc_led_set(BAT0,LOW);
+
+	rc_led_set(RC_LED_BAT25,0);
+	rc_usleep(START_BLINK_US);
+	return 0;
 }
 
 

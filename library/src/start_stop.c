@@ -9,10 +9,11 @@
 #include <signal.h>
 #include <stdlib.h> // for system()
 #include <unistd.h> // for access()
+#include <sys/stat.h> // for mkdir and chmod
+#include <sys/types.h> // for mkdir and chmod
+
 #include <rc/start_stop.h>
 #include <rc/time.h>
-
-
 
 // global process state
 static enum rc_state_t rc_state = UNINITIALIZED;
@@ -64,19 +65,24 @@ int rc_make_pid_file()
 	pid_t current_pid;
 	// start by checking if a pid file exists
 	if(access(RC_PID_FILE, F_OK ) == 0){
-		fprintf(stderr,"ERROR: PID file already exists, a new one was not written\n");
+		fprintf(stderr,"ERROR: in rc_make_pid_file, file already exists, a new one was not written\n");
 		return 1;
 	}
 	// open new file for writing
-	fd = fopen(RC_PID_FILE, "ab+");
+	fd = fopen(RC_PID_FILE, "w");
 	if (fd == NULL) {
-		fprintf(stderr,"error opening RC_PID_FILE for writing\n");
+		perror("ERROR in rc_make_pid_file");
 		return -1;
 	}
 	current_pid = getpid();
 	fprintf(fd,"%d",(int)current_pid);
 	fflush(fd);
 	fclose(fd);
+	// now set the correct permissions
+	if(chmod(RC_PID_FILE, 0777)==-1){
+		perror("ERROR setting permissions of PID directory");
+		return -1;
+	}
 	return 0;
 }
 

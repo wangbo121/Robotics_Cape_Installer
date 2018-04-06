@@ -200,7 +200,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr,"ERROR: failed to run rc_init_adc()\n");
 		return -1;
 	}
-	if(rc_adc_battery_volt()<6.0){
+	if(rc_adc_batt()<6.0){
 		fprintf(stderr,"ERROR: battery disconnected or insufficiently charged to drive servos\n");
 		return -1;
 	}

@@ -29,7 +29,7 @@ INSTALLNONEXEC	:= install -m 644
 INSTALLDIR	:= install -d -m 755
 
 # prefix variable for making debian package
-prefix		?= /usr/local
+prefix		?= /usr/
 
 
 all: $(TARGET)
@@ -41,6 +41,7 @@ install:
 	@$(INSTALLNONEXEC) $(SERVICE).service $(DESTDIR)/lib/systemd/system/
 	@$(INSTALLDIR) $(DESTDIR)/etc/modules-load.d/
 	@$(INSTALLNONEXEC) roboticscape_modules.conf $(DESTDIR)/etc/modules-load.d/
+	@systemctl daemon-reload
 	@echo "roboticscape Service Install Complete"
 
 clean:

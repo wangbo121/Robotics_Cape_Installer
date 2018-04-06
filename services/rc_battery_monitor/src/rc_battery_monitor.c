@@ -1,7 +1,8 @@
 /**
  * @file rc_battery_monitor.c
  *
- *
+ * @author     James Strawson
+ * @date       4/5/2018
  */
 
 #include <stdio.h>

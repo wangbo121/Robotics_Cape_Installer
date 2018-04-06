@@ -30,7 +30,7 @@ LINKDIR		:= /etc/roboticscape
 LINKNAME	:= link_to_startup_program
 
 # prefix variable in case this is used to make a deb package
-prefix		:= /usr/local
+prefix		:= /usr
 
 
 

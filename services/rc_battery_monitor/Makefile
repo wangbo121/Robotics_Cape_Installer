@@ -29,7 +29,7 @@ INSTALLNONEXEC	:= install -m 644
 INSTALLDIR	:= install -d -m 755
 
 # prefix variable for making debian package
-prefix		?= /usr/local
+prefix		?= /usr
 
 
 all: $(TARGET)
@@ -40,6 +40,7 @@ install:
 	@$(INSTALLDIR) $(DESTDIR)/lib/systemd/system
 	@$(INSTALLNONEXEC) $(SERVICE).service $(DESTDIR)/lib/systemd/system/
 	@$(INSTALLDIR) $(DESTDIR)/etc/modules-load.d/
+	@systemctl daemon-reload
 	@echo "rc_battery_monitor Service Install Complete"
 
 clean:

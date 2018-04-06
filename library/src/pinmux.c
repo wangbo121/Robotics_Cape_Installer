@@ -282,10 +282,8 @@ int rc_pinmux_set(int pin, rc_pinmux_mode_t mode)
 	errno=0;
 	fd = open(path, O_WRONLY);
 	if(unlikely(fd==-1)){
-		printf("can't open: ");
-		printf(path);
-		printf("\n");
-		perror("Pinmux");
+		perror("ERORR opening pinmux driver");
+		fprintf(stderr,"can't open: %s\n",path);
 		return -1;
 	}
 

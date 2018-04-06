@@ -81,7 +81,10 @@ int __continue_or_quit()
 {
 	// set stdin to non-canonical raw mode to capture all button presses
 	fflush(stdin);
-	system("stty raw");
+	if(system("stty raw")!=0){
+		fprintf(stderr,"ERROR in continue_or_quit setting stty raw\n");
+		return -1;
+	}
 	int c = getchar();
 	int ret;
 	if(c==3){
@@ -94,7 +97,10 @@ int __continue_or_quit()
 		ret = 0;
 	}
 	// put stdin back to normal canonical mode
-	system ("stty cooked");
+	if(system("stty cooked")!=0){
+		fprintf(stderr,"ERROR in continue_or_quit setting stty cooked\n");
+		return -1;
+	}
 	printf("\n");
 	return ret;
 }

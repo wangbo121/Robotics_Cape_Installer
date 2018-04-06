@@ -34,7 +34,11 @@ static rc_model_t model_from_device_tree()
 	}
 	// read model
 	memset(c, 0, BUF_SIZE);
-	fgets(c, BUF_SIZE, fd);
+	if(fgets(c, BUF_SIZE, fd)==NULL){
+		perror("ERROR reading model");
+		fclose(fd);
+		return UNKNOWN_MODEL;
+	}
 	fclose(fd);
 	// now do the checks
 	if(     strcmp(c, "TI AM335x BeagleBone Black"			)==0) model=BB_BLACK;
